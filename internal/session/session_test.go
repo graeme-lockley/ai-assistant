@@ -18,7 +18,7 @@ func (m *mockStreamCompleter) CompleteStream(ctx context.Context, messages []llm
 }
 
 func TestCreate_logsTimestampAndSessionID(t *testing.T) {
-	store := NewStore(&mockStreamCompleter{})
+	store := NewStore(&mockStreamCompleter{}, nil)
 	var buf bytes.Buffer
 	store.SetLogOutput(&buf)
 
@@ -36,7 +36,7 @@ func TestCreate_logsTimestampAndSessionID(t *testing.T) {
 }
 
 func TestClose_logsTimestampSessionIDAndReason(t *testing.T) {
-	store := NewStore(&mockStreamCompleter{})
+	store := NewStore(&mockStreamCompleter{}, nil)
 	var buf bytes.Buffer
 	store.SetLogOutput(&buf)
 
@@ -62,7 +62,7 @@ func TestClose_logsTimestampSessionIDAndReason(t *testing.T) {
 }
 
 func TestClose_emptyReason_logsWithoutReasonSuffix(t *testing.T) {
-	store := NewStore(&mockStreamCompleter{})
+	store := NewStore(&mockStreamCompleter{}, nil)
 	var buf bytes.Buffer
 	store.SetLogOutput(&buf)
 
@@ -81,7 +81,7 @@ func TestClose_emptyReason_logsWithoutReasonSuffix(t *testing.T) {
 }
 
 func TestClose_unknownSession_noLogLine(t *testing.T) {
-	store := NewStore(&mockStreamCompleter{})
+	store := NewStore(&mockStreamCompleter{}, nil)
 	var buf bytes.Buffer
 	store.SetLogOutput(&buf)
 
@@ -93,7 +93,7 @@ func TestClose_unknownSession_noLogLine(t *testing.T) {
 }
 
 func TestClose_removesSession(t *testing.T) {
-	store := NewStore(&mockStreamCompleter{})
+	store := NewStore(&mockStreamCompleter{}, nil)
 	store.SetLogOutput(&bytes.Buffer{})
 
 	sessionID, ag := store.Create()

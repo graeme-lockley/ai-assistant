@@ -17,7 +17,7 @@ export DEEPSEEK_API_KEY=your-key
 ./ai-assistant server
 ```
 
-Optional: `BIND_ADDR=:8080` (default `:8080`), `DEEPSEEK_BASE_URL`, `DEEPSEEK_MODEL`.
+Optional: `BIND_ADDR=:8080` (default `:8080`), `DEEPSEEK_BASE_URL`, `DEEPSEEK_MODEL`. For tool use (web search, file ops, exec): `AI_ASSISTANT_ROOT_DIR` sets the root directory for file tools and exec_bash cwd (default: server process working directory).
 
 **REPL client** (run in another terminal; connects to the server):
 

@@ -6,12 +6,13 @@ Planned features for the AI Assistant, in rough priority order.
 
 | # | Feature | Spec | Status |
 |---|---------|------|--------|
-| 1 | **Tool collection** — Web search, web get, exec bash, read/write/merge file, read dir. Tools respect workspace constraints. | [tool-collection.md](backlog/tool-collection.md) | Backlog |
+| 1 | **Control plane** — Slash commands from REPL: /exit (close session, then quit), /models (list models), /model (set/query session model), /help (client-side list of commands). | [control-plane.md](backlog/control-plane.md) | Backlog |
 
 ## Done
 
 | Feature | Spec |
 |---------|------|
+| **Tool collection** — Web search, web get, exec bash, read/write/merge file, read dir. Tools respect workspace constraints. | [tool-collection.md](done/tool-collection.md) |
 | **REPL history** — Readline-style history in the REPL; Up/Down to navigate history, Left/Right within the line. History persisted across sessions. | [repl-history.md](done/repl-history.md) |
 | **Streaming results** — All results streamed to the caller (no single-chunk responses). Request/response support multiple content types; session ID; HTTP with SSE/NDJSON; LLM client disables gzip and streams reasoning_content; REPL flushes stdout per token. | [streaming-results.md](done/streaming-results.md) |
 | **Session console output** — Log to server console (with timestamp) when a session is created and when it is closed. Sessions have a defined lifecycle (created → active → closed). Explicit close via `X-Session-Close: true`. | [session-console-output.md](done/session-console-output.md) |

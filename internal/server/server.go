@@ -15,6 +15,7 @@ import (
 	"github.com/graemelockley/ai-assistant/internal/llm"
 	"github.com/graemelockley/ai-assistant/internal/protocol"
 	"github.com/graemelockley/ai-assistant/internal/session"
+	"github.com/graemelockley/ai-assistant/internal/tools"
 )
 
 // Run starts the HTTP server and blocks until shutdown.
@@ -26,8 +27,18 @@ func Run(ctx context.Context, cfg config.Server) error {
 	if err != nil {
 		return fmt.Errorf("llm: %w", err)
 	}
-
-	store := session.NewStore(llmClient)
+	rootDir := cfg.RootDir
+	if rootDir == "" {
+		rootDir, err = os.Getwd()
+		if err != nil {
+			return fmt.Errorf("root dir: %w", err)
+		}
+	}
+	toolRunner, err := tools.NewRunner(rootDir)
+	if err != nil {
+		return fmt.Errorf("tools: %w", err)
+	}
+	store := session.NewStore(llmClient, toolRunner)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", handleChat(store, cfg))
 

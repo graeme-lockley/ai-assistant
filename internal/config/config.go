@@ -22,6 +22,7 @@ type Server struct {
 	DeepseekBaseURL     string
 	DeepseekModel       string
 	DefaultResponseType string // optional; e.g. "text/event-stream" or "application/json"
+	RootDir             string // root directory for file tools and exec_bash cwd; empty = process working directory
 }
 
 // REPL holds configuration for the REPL client.
@@ -42,6 +43,7 @@ func ServerFromEnv() Server {
 		DeepseekBaseURL:     envOrDefault("DEEPSEEK_BASE_URL", DefaultDeepseekURL),
 		DeepseekModel:       envOrDefault("DEEPSEEK_MODEL", DefaultDeepseekModel),
 		DefaultResponseType: os.Getenv("AI_ASSISTANT_DEFAULT_RESPONSE_TYPE"),
+		RootDir:             os.Getenv("AI_ASSISTANT_ROOT_DIR"),
 	}
 	return s
 }
