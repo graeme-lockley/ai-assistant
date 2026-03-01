@@ -20,10 +20,11 @@ const (
 
 // Stream event types for SSE and NDJSON.
 const (
-	EventSession = "session"
-	EventToken   = "token"
-	EventDone    = "done"
-	EventError   = "error"
+	EventSession  = "session"
+	EventToken    = "token"
+	EventThinking = "thinking"
+	EventDone     = "done"
+	EventError    = "error"
 )
 
 // SSEWriter writes Server-Sent Events to w. Not safe for concurrent use.

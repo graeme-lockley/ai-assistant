@@ -27,10 +27,11 @@ func New(llmClient llm.StreamCompleter, runner tools.Runner) *Agent {
 	}
 }
 
-// RespondStream appends the user message to history, streams the assistant reply via sendChunk,
-// then appends the full reply to history. When a tool runner is set, runs requested tools
-// and continues until the LLM returns a final reply.
-func (a *Agent) RespondStream(ctx context.Context, userMessage string, sendChunk func(delta string) error) error {
+// RespondStream appends the user message to history, streams the assistant reply via sendThinking (reasoning)
+// and sendChunk (main content), then appends the full reply to history. When a tool runner is set, runs
+// requested tools and continues until the LLM returns a final reply. model is an optional override; if empty,
+// the LLM uses its default.
+func (a *Agent) RespondStream(ctx context.Context, userMessage string, sendThinking, sendChunk func(delta string) error, model string) error {
 	a.history = append(a.history, llm.Message{
 		Role:    "user",
 		Content: userMessage,
@@ -45,18 +46,14 @@ func (a *Agent) RespondStream(ctx context.Context, userMessage string, sendChunk
 
 	if a.runner != nil {
 		if withTools, ok := a.llm.(llm.StreamCompleterWithTools); ok {
-			if err := a.respondStreamWithTools(ctx, withTools, sendDelta, &fullReply); err != nil {
+			if err := a.respondStreamWithTools(ctx, withTools, sendThinking, sendDelta, model); err != nil {
 				return err
 			}
-			a.history = append(a.history, llm.Message{
-				Role:    "assistant",
-				Content: fullReply.String(),
-			})
 			return nil
 		}
 	}
 
-	if err := a.llm.CompleteStream(ctx, a.history, sendDelta); err != nil {
+	if err := a.llm.CompleteStream(ctx, a.history, sendThinking, sendDelta, model); err != nil {
 		return fmt.Errorf("agent respond: %w", err)
 	}
 	a.history = append(a.history, llm.Message{
@@ -67,40 +64,42 @@ func (a *Agent) RespondStream(ctx context.Context, userMessage string, sendChunk
 }
 
 // respondStreamWithTools runs the tool loop: call LLM with tools, stream deltas; if tool calls returned, run them and repeat.
-func (a *Agent) respondStreamWithTools(ctx context.Context, withTools llm.StreamCompleterWithTools, sendDelta func(delta string) error, fullReply *strings.Builder) error {
+// Assistant messages are appended with ReasoningContent and Content from the result so deepseek-reasoner receives
+// reasoning_content on the next request.
+func (a *Agent) respondStreamWithTools(ctx context.Context, withTools llm.StreamCompleterWithTools, sendThinking, sendDelta func(delta string) error, model string) error {
 	for {
-		toolCalls, err := withTools.CompleteStreamWithTools(ctx, a.history, sendDelta)
+		res, err := withTools.CompleteStreamWithTools(ctx, a.history, sendThinking, sendDelta, model)
 		if err != nil {
 			return fmt.Errorf("agent respond: %w", err)
 		}
-		if len(toolCalls) == 0 {
+		if res == nil {
 			return nil
 		}
-		// Append assistant message (content so far + tool_calls)
-		assistantContent := fullReply.String()
 		assistantMsg := llm.Message{
-			Role:      "assistant",
-			Content:   assistantContent,
-			ToolCalls: toolCalls,
+			Role:             "assistant",
+			Content:          res.Content,
+			ReasoningContent: res.ReasoningContent,
+			ToolCalls:        res.ToolCalls,
 		}
 		a.history = append(a.history, assistantMsg)
+		if len(res.ToolCalls) == 0 {
+			return nil
+		}
 		// Run each tool and append tool result messages
-		for _, tc := range toolCalls {
+		for _, tc := range res.ToolCalls {
 			toolLogTrunc := 200
 			log.Printf("[tool] call id=%s name=%s args=%s", tc.ID, tc.Name, truncate(tc.Arguments, toolLogTrunc))
-			result, runErr := a.runner.Run(ctx, tc.Name, tc.Arguments)
+			toolResult, runErr := a.runner.Run(ctx, tc.Name, tc.Arguments)
 			if runErr != nil {
-				result = "error: " + runErr.Error()
+				toolResult = "error: " + runErr.Error()
 			}
-			log.Printf("[tool] result id=%s name=%s result=%s err=%v", tc.ID, tc.Name, truncate(result, toolLogTrunc), runErr)
+			log.Printf("[tool] result id=%s name=%s result=%s err=%v", tc.ID, tc.Name, truncate(toolResult, toolLogTrunc), runErr)
 			a.history = append(a.history, llm.Message{
 				Role:       "tool",
-				Content:    result,
+				Content:    toolResult,
 				ToolCallID: tc.ID,
 			})
 		}
-		// Reset for next round (we only want to accumulate the final reply text)
-		fullReply.Reset()
 	}
 }
 

@@ -17,6 +17,7 @@ import (
 type sessionEntry struct {
 	agent     *agent.Agent
 	createdAt time.Time
+	model     string // optional per-session model override; empty means use server default
 }
 
 // Store holds session ID -> agent mapping. Safe for concurrent use.
@@ -59,7 +60,7 @@ func (s *Store) Create() (sessionID string, ag *agent.Agent) {
 	sessionID = uuid.New().String()
 	now := time.Now()
 	s.mu.Lock()
-	s.agents[sessionID] = &sessionEntry{agent: ag, createdAt: now}
+	s.agents[sessionID] = &sessionEntry{agent: ag, createdAt: now, model: ""}
 	s.mu.Unlock()
 	fmt.Fprintf(s.logOut(), "%s [session] created %s\n", now.UTC().Format(time.RFC3339), sessionID)
 	return sessionID, ag
@@ -74,6 +75,26 @@ func (s *Store) Get(sessionID string) *agent.Agent {
 		return nil
 	}
 	return ent.agent
+}
+
+// GetModel returns the session's model override, or empty string if not set (caller should use server default).
+func (s *Store) GetModel(sessionID string) string {
+	s.mu.RLock()
+	ent := s.agents[sessionID]
+	s.mu.RUnlock()
+	if ent == nil {
+		return ""
+	}
+	return ent.model
+}
+
+// SetModel sets the model override for the session. No-op if session not found.
+func (s *Store) SetModel(sessionID string, model string) {
+	s.mu.Lock()
+	if ent := s.agents[sessionID]; ent != nil {
+		ent.model = model
+	}
+	s.mu.Unlock()
 }
 
 // Close removes the session and logs to the server console with a timestamp and optional reason.

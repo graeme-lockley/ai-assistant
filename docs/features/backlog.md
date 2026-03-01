@@ -6,12 +6,13 @@ Planned features for the AI Assistant, in rough priority order.
 
 | # | Feature | Spec | Status |
 |---|---------|------|--------|
-| 1 | **Control plane** — Slash commands from REPL: /exit (close session, then quit), /models (list models), /model (set/query session model), /help (client-side list of commands). | [control-plane.md](backlog/control-plane.md) | Backlog |
+| — | *No items* | | |
 
 ## Done
 
 | Feature | Spec |
 |---------|------|
+| **Control plane** — Slash commands from REPL: /exit (close session, then quit), /models (list models), /model (set/query session model), /help (client-side list of commands). Models hardcoded for v1. | [control-plane.md](done/control-plane.md) |
 | **Tool collection** — Web search, web get, exec bash, read/write/merge file, read dir. Tools respect workspace constraints. | [tool-collection.md](done/tool-collection.md) |
 | **REPL history** — Readline-style history in the REPL; Up/Down to navigate history, Left/Right within the line. History persisted across sessions. | [repl-history.md](done/repl-history.md) |
 | **Streaming results** — All results streamed to the caller (no single-chunk responses). Request/response support multiple content types; session ID; HTTP with SSE/NDJSON; LLM client disables gzip and streams reasoning_content; REPL flushes stdout per token. | [streaming-results.md](done/streaming-results.md) |

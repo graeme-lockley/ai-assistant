@@ -82,6 +82,16 @@ func Run(ctx context.Context, cfg config.REPL) error {
 		}
 		saveHistory(state, cfg.HistoryFile, cfg.HistoryMaxSize)
 
+		// Slash commands: /help (client-side), /exit, /models, /model (server)
+		handled, exit := handleSlashCommand(ctx, baseURL, client, &sessionID, line, out)
+		if exit {
+			saveHistory(state, cfg.HistoryFile, cfg.HistoryMaxSize)
+			return nil
+		}
+		if handled {
+			continue
+		}
+
 		accept := protocol.AcceptHeaderSSE
 		if cfg.DefaultResponseType != "" {
 			accept = cfg.DefaultResponseType
@@ -154,9 +164,154 @@ func Run(ctx context.Context, cfg config.REPL) error {
 	}
 }
 
+// slashCommandHelp is the client-side help text for /help.
+const slashCommandHelp = `Slash commands:
+  /help   Show this help.
+  /exit   Close the session and exit the REPL.
+  /models List available models.
+  /model  Show the current model for this session.
+  /model <name>  Set the model for this session.
+`
+
+// handleSlashCommand handles /exit, /models, /model, /help. Returns (true, true) to exit REPL,
+// (true, false) if a slash command was handled and the loop should continue, (false, false) otherwise.
+func handleSlashCommand(ctx context.Context, baseURL string, client *http.Client, sessionID *string, line string, out *bufio.Writer) (handled bool, exit bool) {
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "/") {
+		return false, false
+	}
+	parts := strings.Fields(line)
+	cmd := parts[0]
+	arg := ""
+	if len(parts) > 1 {
+		arg = strings.TrimSpace(line[len(cmd):])
+	}
+
+	switch cmd {
+	case "/help":
+		fmt.Fprint(os.Stderr, slashCommandHelp)
+		return true, false
+	case "/exit":
+		if *sessionID != "" {
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/", nil)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "exit: %v\n", err)
+				return true, true
+			}
+			req.Header.Set(protocol.HeaderSessionID, *sessionID)
+			req.Header.Set(protocol.HeaderSessionClose, "true")
+			resp, err := client.Do(req)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "exit: %v\n", err)
+				return true, true
+			}
+			resp.Body.Close()
+		}
+		return true, true
+	case "/models":
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/models", nil)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "models: %v\n", err)
+			return true, false
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "models: %v\n", err)
+			return true, false
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			fmt.Fprintf(os.Stderr, "models: %s\n", string(body))
+			return true, false
+		}
+		var models []string
+		if err := json.NewDecoder(resp.Body).Decode(&models); err != nil {
+			fmt.Fprintf(os.Stderr, "models: %v\n", err)
+			return true, false
+		}
+		for _, m := range models {
+			fmt.Fprintln(out, m)
+		}
+		_ = out.Flush()
+		return true, false
+	case "/model":
+		if *sessionID == "" {
+			fmt.Fprintln(os.Stderr, "No active session. Send a message first.")
+			return true, false
+		}
+		if arg == "" {
+			// GET current model
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/model", nil)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "model: %v\n", err)
+				return true, false
+			}
+			req.Header.Set(protocol.HeaderSessionID, *sessionID)
+			resp, err := client.Do(req)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "model: %v\n", err)
+				return true, false
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				body, _ := io.ReadAll(resp.Body)
+				fmt.Fprintf(os.Stderr, "model: %s\n", string(body))
+				return true, false
+			}
+			var v struct {
+				Model string `json:"model"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&v); err != nil {
+				fmt.Fprintf(os.Stderr, "model: %v\n", err)
+				return true, false
+			}
+			fmt.Fprintf(out, "Current model: %s\n", v.Model)
+			_ = out.Flush()
+			return true, false
+		}
+		// POST set model
+		payload, _ := json.Marshal(map[string]string{"model": arg})
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/model", bytes.NewReader(payload))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "model: %v\n", err)
+			return true, false
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set(protocol.HeaderSessionID, *sessionID)
+		resp, err := client.Do(req)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "model: %v\n", err)
+			return true, false
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			respBody, _ := io.ReadAll(resp.Body)
+			fmt.Fprintf(os.Stderr, "model: %s\n", string(respBody))
+			return true, false
+		}
+		var v struct {
+			Model string `json:"model"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&v); err != nil {
+			fmt.Fprintf(os.Stderr, "model: %v\n", err)
+			return true, false
+		}
+		fmt.Fprintf(out, "Model set to %s\n", v.Model)
+		_ = out.Flush()
+		return true, false
+	}
+	return false, false
+}
+
 // consumeSSE reads Server-Sent Events from r and prints token deltas to out, flushing after each
-// so streamed output appears immediately. Calls onSession with session_id from session events.
+// so streamed output appears immediately. Thinking/reasoning tokens are printed in light grey (ANSI).
+// Calls onSession with session_id from session events.
 func consumeSSE(r io.Reader, out *bufio.Writer, onSession func(sessionID string)) error {
+	const (
+		ansiLightGrey = "\033[90m"
+		ansiReset     = "\033[0m"
+	)
 	scanner := bufio.NewScanner(r)
 	var eventType string
 	var data strings.Builder
@@ -180,6 +335,16 @@ func consumeSSE(r io.Reader, out *bufio.Writer, onSession func(sessionID string)
 					}
 					if json.Unmarshal([]byte(dataStr), &v) == nil {
 						_, _ = out.WriteString(v.Delta)
+						_ = out.Flush()
+					}
+				case protocol.EventThinking:
+					var v struct {
+						Delta string `json:"delta"`
+					}
+					if json.Unmarshal([]byte(dataStr), &v) == nil {
+						_, _ = out.WriteString(ansiLightGrey)
+						_, _ = out.WriteString(v.Delta)
+						_, _ = out.WriteString(ansiReset)
 						_ = out.Flush()
 					}
 				case protocol.EventError:
@@ -210,8 +375,13 @@ func consumeSSE(r io.Reader, out *bufio.Writer, onSession func(sessionID string)
 }
 
 // consumeNDJSON reads NDJSON lines from r and prints token deltas to out, flushing after each
-// so streamed output appears immediately. Calls onSession with session_id from session events.
+// so streamed output appears immediately. Thinking/reasoning tokens are printed in light grey (ANSI).
+// Calls onSession with session_id from session events.
 func consumeNDJSON(r io.Reader, out *bufio.Writer, onSession func(sessionID string)) error {
+	const (
+		ansiLightGrey = "\033[90m"
+		ansiReset     = "\033[0m"
+	)
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -224,6 +394,11 @@ func consumeNDJSON(r io.Reader, out *bufio.Writer, onSession func(sessionID stri
 			onSession(ev.SessionID)
 		case protocol.EventToken:
 			_, _ = out.WriteString(ev.Delta)
+			_ = out.Flush()
+		case protocol.EventThinking:
+			_, _ = out.WriteString(ansiLightGrey)
+			_, _ = out.WriteString(ev.Delta)
+			_, _ = out.WriteString(ansiReset)
 			_ = out.Flush()
 		case protocol.EventError:
 			if ev.Error != "" {

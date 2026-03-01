@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -17,6 +18,9 @@ import (
 	"github.com/graemelockley/ai-assistant/internal/session"
 	"github.com/graemelockley/ai-assistant/internal/tools"
 )
+
+// availableModels is the hardcoded list of model IDs for /models. Multiple models will be added later.
+var availableModels = []string{"deepseek-chat", "deepseek-reasoner"}
 
 // Run starts the HTTP server and blocks until shutdown.
 func Run(ctx context.Context, cfg config.Server) error {
@@ -40,6 +44,8 @@ func Run(ctx context.Context, cfg config.Server) error {
 	}
 	store := session.NewStore(llmClient, toolRunner)
 	mux := http.NewServeMux()
+	mux.HandleFunc("/models", handleModels(cfg))
+	mux.HandleFunc("/model", handleModel(store, cfg))
 	mux.HandleFunc("/", handleChat(store, cfg))
 
 	srv := &http.Server{
@@ -130,6 +136,11 @@ func handleChat(store *session.Store, cfg config.Server) http.HandlerFunc {
 		w.Header().Set("X-Accel-Buffering", "no")
 		flusher, _ := w.(http.Flusher)
 
+		model := store.GetModel(sessionID)
+		if model == "" {
+			model = cfg.DeepseekModel
+		}
+
 		if useSSE {
 			w.Header().Set("Content-Type", protocol.ContentTypeSSE)
 			sw := protocol.NewSSEWriter(w)
@@ -138,6 +149,15 @@ func handleChat(store *session.Store, cfg config.Server) http.HandlerFunc {
 				if flusher != nil {
 					flusher.Flush()
 				}
+			}
+			sendThinking := func(delta string) error {
+				if err := sw.WriteEvent(protocol.EventThinking, map[string]string{"delta": delta}); err != nil {
+					return err
+				}
+				if flusher != nil {
+					flusher.Flush()
+				}
+				return nil
 			}
 			sendChunk := func(delta string) error {
 				if err := sw.WriteEvent(protocol.EventToken, map[string]string{"delta": delta}); err != nil {
@@ -148,7 +168,7 @@ func handleChat(store *session.Store, cfg config.Server) http.HandlerFunc {
 				}
 				return nil
 			}
-			if err := ag.RespondStream(r.Context(), message, sendChunk); err != nil {
+			if err := ag.RespondStream(r.Context(), message, sendThinking, sendChunk, model); err != nil {
 				_ = sw.WriteEvent(protocol.EventError, map[string]string{"error": err.Error()})
 				if flusher != nil {
 					flusher.Flush()
@@ -171,6 +191,15 @@ func handleChat(store *session.Store, cfg config.Server) http.HandlerFunc {
 				flusher.Flush()
 			}
 		}
+		sendThinking := func(delta string) error {
+			if err := nw.WriteLine(protocol.StreamEvent{Type: protocol.EventThinking, Delta: delta}); err != nil {
+				return err
+			}
+			if flusher != nil {
+				flusher.Flush()
+			}
+			return nil
+		}
 		sendChunk := func(delta string) error {
 			if err := nw.WriteLine(protocol.StreamEvent{Type: protocol.EventToken, Delta: delta}); err != nil {
 				return err
@@ -180,7 +209,7 @@ func handleChat(store *session.Store, cfg config.Server) http.HandlerFunc {
 			}
 			return nil
 		}
-		if err := ag.RespondStream(r.Context(), message, sendChunk); err != nil {
+		if err := ag.RespondStream(r.Context(), message, sendThinking, sendChunk, model); err != nil {
 			_ = nw.WriteLine(protocol.StreamEvent{Type: protocol.EventError, Error: err.Error()})
 			if flusher != nil {
 				flusher.Flush()
@@ -190,6 +219,74 @@ func handleChat(store *session.Store, cfg config.Server) http.HandlerFunc {
 		_ = nw.WriteLine(protocol.StreamEvent{Type: protocol.EventDone})
 		if flusher != nil {
 			flusher.Flush()
+		}
+	}
+}
+
+// handleModels returns the HTTP handler for GET /models (list available models). No session required.
+func handleModels(cfg config.Server) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(availableModels)
+	}
+}
+
+// handleModel returns the HTTP handler for GET /model (query current) and POST /model (set). Requires X-Session-Id.
+func handleModel(store *session.Store, cfg config.Server) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sessionID := r.Header.Get(protocol.HeaderSessionID)
+		if sessionID == "" {
+			http.Error(w, "session required", http.StatusUnauthorized)
+			return
+		}
+		if store.Get(sessionID) == nil {
+			http.Error(w, "invalid or expired session", http.StatusUnauthorized)
+			return
+		}
+
+		switch r.Method {
+		case http.MethodGet:
+			model := store.GetModel(sessionID)
+			if model == "" {
+				model = cfg.DeepseekModel
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{"model": model})
+			return
+		case http.MethodPost:
+			var body struct {
+				Model string `json:"model"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				http.Error(w, "invalid JSON", http.StatusBadRequest)
+				return
+			}
+			model := strings.TrimSpace(body.Model)
+			if model == "" {
+				http.Error(w, "model is required", http.StatusBadRequest)
+				return
+			}
+			valid := false
+			for _, m := range availableModels {
+				if m == model {
+					valid = true
+					break
+				}
+			}
+			if !valid {
+				http.Error(w, "unknown model", http.StatusBadRequest)
+				return
+			}
+			store.SetModel(sessionID, model)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{"model": model})
+			return
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	}
 }

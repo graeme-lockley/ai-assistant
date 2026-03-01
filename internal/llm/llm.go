@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	openai "github.com/sashabaranov/go-openai"
@@ -41,11 +42,14 @@ func NewClient(apiKey, baseURL, model string) (*Client, error) {
 }
 
 // Message represents a single chat message (role + content, and optionally tool_calls or tool result).
+// ReasoningContent is used for deepseek-reasoner thinking mode: assistant messages with tool_calls
+// must include the reasoning_content from that turn when sent back to the API.
 type Message struct {
-	Role       string
-	Content    string
-	ToolCalls  []ToolCall // for assistant messages that request tool execution
-	ToolCallID string     // for tool result messages
+	Role              string
+	Content           string
+	ReasoningContent  string   // assistant messages in thinking mode (e.g. deepseek-reasoner)
+	ToolCalls         []ToolCall // for assistant messages that request tool execution
+	ToolCallID        string     // for tool result messages
 }
 
 // ToolCall represents a single tool invocation from the LLM.
@@ -62,14 +66,27 @@ type Completer interface {
 }
 
 // StreamCompleter is the interface for streaming assistant replies. *Client implements it.
+// model is an optional override; if empty, the implementation uses its default model.
+// sendThinking is called for reasoning/thinking tokens (e.g. deepseek-reasoner); sendDelta for main content.
 type StreamCompleter interface {
-	CompleteStream(ctx context.Context, messages []Message, sendDelta func(delta string) error) error
+	CompleteStream(ctx context.Context, messages []Message, sendThinking, sendDelta func(delta string) error, model string) error
 }
 
 // StreamCompleterWithTools extends StreamCompleter with tool support. *Client implements it.
+// model is an optional override; if empty, the implementation uses its default model.
+// When tool calls are returned, StreamWithToolsResult also contains ReasoningContent and Content
+// for that assistant turn so the caller can pass them back in the next request (required by deepseek-reasoner).
 type StreamCompleterWithTools interface {
 	StreamCompleter
-	CompleteStreamWithTools(ctx context.Context, messages []Message, sendDelta func(delta string) error) (toolCalls []ToolCall, err error)
+	CompleteStreamWithTools(ctx context.Context, messages []Message, sendThinking, sendDelta func(delta string) error, model string) (*StreamWithToolsResult, error)
+}
+
+// StreamWithToolsResult is the return value of CompleteStreamWithTools. When ToolCalls is non-nil,
+// ReasoningContent and Content must be stored in the assistant message and sent back in the next request.
+type StreamWithToolsResult struct {
+	ToolCalls        []ToolCall
+	ReasoningContent string
+	Content         string
 }
 
 func messagesToOpenAI(messages []Message) []openai.ChatCompletionMessage {
@@ -89,9 +106,16 @@ func messagesToOpenAI(messages []Message) []openai.ChatCompletionMessage {
 		if content == "" && (m.Role == "tool" || (m.Role == "assistant" && len(m.ToolCalls) > 0)) {
 			content = " "
 		}
+		reasoningContent := m.ReasoningContent
+		// Deepseek-reasoner with tool_calls requires reasoning_content to be present in assistant messages.
+		// omitempty omits empty string; use a space so the field is sent when we have tool_calls but no reasoning.
+		if m.Role == "assistant" && len(m.ToolCalls) > 0 && reasoningContent == "" {
+			reasoningContent = " "
+		}
 		msg := openai.ChatCompletionMessage{
-			Role:    m.Role,
-			Content: content,
+			Role:             m.Role,
+			Content:          content,
+			ReasoningContent: reasoningContent,
 		}
 		if m.ToolCallID != "" {
 			msg.ToolCallID = m.ToolCallID
@@ -242,10 +266,15 @@ func (c *Client) Complete(ctx context.Context, messages []Message) (string, erro
 	return resp.Choices[0].Message.Content, nil
 }
 
-// CompleteStream streams the assistant reply by calling sendDelta for each content delta.
-func (c *Client) CompleteStream(ctx context.Context, messages []Message, sendDelta func(delta string) error) error {
+// CompleteStream streams the assistant reply by calling sendThinking for reasoning content and sendDelta for main content.
+// If model is non-empty it is used; otherwise the client's default model is used.
+func (c *Client) CompleteStream(ctx context.Context, messages []Message, sendThinking, sendDelta func(delta string) error, model string) error {
+	modelToUse := model
+	if modelToUse == "" {
+		modelToUse = c.model
+	}
 	req := openai.ChatCompletionRequest{
-		Model:    c.model,
+		Model:    modelToUse,
 		Messages: messagesToOpenAI(messages),
 		Stream:   true,
 	}
@@ -269,8 +298,10 @@ func (c *Client) CompleteStream(ctx context.Context, messages []Message, sendDel
 		delta := chunk.Choices[0].Delta
 		// Stream reasoning_content first (e.g. deepseek-reasoner), then content, so the user sees output as it arrives.
 		if delta.ReasoningContent != "" {
-			if err := sendDelta(delta.ReasoningContent); err != nil {
-				return err
+			if sendThinking != nil {
+				if err := sendThinking(delta.ReasoningContent); err != nil {
+					return err
+				}
 			}
 		}
 		if delta.Content != "" {
@@ -282,11 +313,17 @@ func (c *Client) CompleteStream(ctx context.Context, messages []Message, sendDel
 }
 
 // CompleteStreamWithTools streams the assistant reply and returns any tool calls.
-// If the model requests tool execution, toolCalls is non-nil and the caller should run tools,
-// append assistant message (with content + tool_calls) and tool result messages, then call again.
-func (c *Client) CompleteStreamWithTools(ctx context.Context, messages []Message, sendDelta func(delta string) error) (toolCalls []ToolCall, err error) {
+// sendThinking is called for reasoning tokens; sendDelta for main content.
+// When tool calls are returned, the result includes ReasoningContent and Content for that turn
+// so the caller can include them in the assistant message (required by deepseek-reasoner).
+// If model is non-empty it is used; otherwise the client's default model is used.
+func (c *Client) CompleteStreamWithTools(ctx context.Context, messages []Message, sendThinking, sendDelta func(delta string) error, model string) (*StreamWithToolsResult, error) {
+	modelToUse := model
+	if modelToUse == "" {
+		modelToUse = c.model
+	}
 	req := openai.ChatCompletionRequest{
-		Model:    c.model,
+		Model:    modelToUse,
 		Messages: messagesToOpenAI(messages),
 		Tools:    ToolDefinitions(),
 		Stream:   true,
@@ -297,8 +334,9 @@ func (c *Client) CompleteStreamWithTools(ctx context.Context, messages []Message
 	}
 	defer stream.Close()
 
-	// Accumulate tool calls (streamed in chunks: Index, ID, Function.Name, Function.Arguments)
+	// Accumulate tool calls (streamed in chunks) and reasoning/content for the assistant message.
 	var acc []*ToolCall
+	var reasoningBuf, contentBuf strings.Builder
 	for {
 		chunk, err := stream.Recv()
 		if err != nil {
@@ -314,11 +352,15 @@ func (c *Client) CompleteStreamWithTools(ctx context.Context, messages []Message
 		choice := chunk.Choices[0]
 
 		if delta.ReasoningContent != "" {
-			if err := sendDelta(delta.ReasoningContent); err != nil {
-				return nil, err
+			reasoningBuf.WriteString(delta.ReasoningContent)
+			if sendThinking != nil {
+				if err := sendThinking(delta.ReasoningContent); err != nil {
+					return nil, err
+				}
 			}
 		}
 		if delta.Content != "" {
+			contentBuf.WriteString(delta.Content)
 			if err := sendDelta(delta.Content); err != nil {
 				return nil, err
 			}
@@ -348,10 +390,17 @@ func (c *Client) CompleteStreamWithTools(ctx context.Context, messages []Message
 					result = append(result, *t)
 				}
 			}
-			return result, nil
+			return &StreamWithToolsResult{
+				ToolCalls:        result,
+				ReasoningContent: reasoningBuf.String(),
+				Content:          contentBuf.String(),
+			}, nil
 		}
 		if choice.FinishReason == openai.FinishReasonStop || choice.FinishReason == openai.FinishReasonLength || choice.FinishReason == openai.FinishReasonContentFilter {
-			return nil, nil
+			return &StreamWithToolsResult{
+				ReasoningContent: reasoningBuf.String(),
+				Content:          contentBuf.String(),
+			}, nil
 		}
 	}
 	// Stream ended without explicit finish_reason tool_calls; if we accumulated any, return them
@@ -363,8 +412,15 @@ func (c *Client) CompleteStreamWithTools(ctx context.Context, messages []Message
 			}
 		}
 		if len(result) > 0 {
-			return result, nil
+			return &StreamWithToolsResult{
+				ToolCalls:        result,
+				ReasoningContent: reasoningBuf.String(),
+				Content:          contentBuf.String(),
+			}, nil
 		}
 	}
-	return nil, nil
+	return &StreamWithToolsResult{
+		ReasoningContent: reasoningBuf.String(),
+		Content:          contentBuf.String(),
+	}, nil
 }

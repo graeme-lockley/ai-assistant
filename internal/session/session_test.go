@@ -13,7 +13,7 @@ import (
 // mockStreamCompleter implements llm.StreamCompleter for tests (no real LLM calls).
 type mockStreamCompleter struct{}
 
-func (m *mockStreamCompleter) CompleteStream(ctx context.Context, messages []llm.Message, sendDelta func(delta string) error) error {
+func (m *mockStreamCompleter) CompleteStream(ctx context.Context, messages []llm.Message, sendThinking, sendDelta func(delta string) error, model string) error {
 	return nil
 }
 
@@ -105,5 +105,26 @@ func TestClose_removesSession(t *testing.T) {
 
 	if store.Get(sessionID) != nil {
 		t.Error("Get should return nil after Close")
+	}
+}
+
+func TestGetModel_SetModel(t *testing.T) {
+	store := NewStore(&mockStreamCompleter{}, nil)
+	store.SetLogOutput(&bytes.Buffer{})
+
+	sessionID, _ := store.Create()
+	if got := store.GetModel(sessionID); got != "" {
+		t.Errorf("GetModel new session: got %q, want empty", got)
+	}
+	store.SetModel(sessionID, "deepseek-reasoner")
+	if got := store.GetModel(sessionID); got != "deepseek-reasoner" {
+		t.Errorf("GetModel after SetModel: got %q, want deepseek-reasoner", got)
+	}
+	store.SetModel(sessionID, "deepseek-chat")
+	if got := store.GetModel(sessionID); got != "deepseek-chat" {
+		t.Errorf("GetModel after second SetModel: got %q, want deepseek-chat", got)
+	}
+	if got := store.GetModel("nonexistent"); got != "" {
+		t.Errorf("GetModel unknown session: got %q, want empty", got)
 	}
 }
