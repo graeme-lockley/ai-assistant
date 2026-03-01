@@ -25,7 +25,7 @@ Optional: `BIND_ADDR=:8080` (default `:8080`), `DEEPSEEK_BASE_URL`, `DEEPSEEK_MO
 ./ai-assistant repl
 ```
 
-Optional: `AI_ASSISTANT_URL=http://localhost:8080` if the server is not on the default.
+Optional: `AI_ASSISTANT_SERVER_ADDR` or `AI_ASSISTANT_SERVER_URL` if the server is not on the default. The REPL supports input history (Up/Down to recall previous lines); history is stored under your config directory and limited to 1000 entries (`AI_ASSISTANT_REPL_HISTORY_FILE`, `AI_ASSISTANT_REPL_HISTORY_MAX`).
 
 **Session logs** — When a client creates or closes a session, the **server** prints a line to its console (stderr), for example:
 

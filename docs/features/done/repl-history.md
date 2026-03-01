@@ -1,5 +1,7 @@
 # Feature: REPL history
 
+**Status: Done**
+
 ## Summary
 
 Add readline-style history to the REPL so users can recall and edit previous input using the arrow keys. Up/down navigate through history; left/right move within the current line as today.
@@ -25,8 +27,8 @@ Add readline-style history to the REPL so users can recall and edit previous inp
 
 ## Acceptance criteria
 
-- [ ] Up/Down arrow keys navigate backwards and forwards through REPL input history.
-- [ ] Left/Right arrow keys continue to move the cursor within the current line.
-- [ ] History is persisted to a file and restored when the REPL starts.
-- [ ] Consecutive duplicate lines are not stored.
-- [ ] History size is bounded by a configurable limit (default documented).
+- [x] Up/Down arrow keys navigate backwards and forwards through REPL input history.
+- [x] Left/Right arrow keys continue to move the cursor within the current line.
+- [x] History is persisted to a file and restored when the REPL starts.
+- [x] Consecutive duplicate lines are not stored.
+- [x] History size is bounded by a configurable limit (default documented).

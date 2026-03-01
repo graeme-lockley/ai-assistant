@@ -10,17 +10,21 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
 	"github.com/graemelockley/ai-assistant/internal/config"
 	"github.com/graemelockley/ai-assistant/internal/protocol"
+	"github.com/peterh/liner"
 )
 
 // Run connects to the server over HTTP and runs the read-send-receive-print loop until exit.
 // Each turn is one POST request; the response is streamed (SSE or NDJSON). Session ID is
 // sent on subsequent requests. Stdout is flushed after each token so the user sees
-// streamed output immediately.
+// streamed output immediately. Input uses a readline with history (Up/Down for history,
+// Left/Right for line editing); history is persisted to cfg.HistoryFile and bounded by
+// cfg.HistoryMaxSize.
 func Run(ctx context.Context, cfg config.REPL) error {
 	baseURL := cfg.ServerURL
 	if baseURL == "" {
@@ -30,10 +34,18 @@ func Run(ctx context.Context, cfg config.REPL) error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	state := liner.NewLiner()
+	defer state.Close()
+	state.SetCtrlCAborts(false)
+
+	// Load history from file (dedupe consecutive, keep last HistoryMaxSize)
+	if cfg.HistoryFile != "" {
+		loadHistory(state, cfg.HistoryFile, cfg.HistoryMaxSize)
+	}
+
 	client := &http.Client{}
-	scanner := bufio.NewScanner(os.Stdin)
 	var sessionID string
-	// Flushable stdout so streamed tokens appear immediately (no wait for newline/buffer full).
+	var lastHistoryLine string
 	out := bufio.NewWriter(os.Stdout)
 	defer out.Flush()
 
@@ -42,21 +54,33 @@ func Run(ctx context.Context, cfg config.REPL) error {
 	for {
 		select {
 		case <-ctx.Done():
+			saveHistory(state, cfg.HistoryFile, cfg.HistoryMaxSize)
 			return nil
 		default:
 		}
 
-		fmt.Fprint(os.Stdout, "> ")
-		if !scanner.Scan() {
-			if err := scanner.Err(); err != nil {
-				return fmt.Errorf("repl: read stdin: %w", err)
+		line, err := state.Prompt("> ")
+		if err != nil {
+			if err == liner.ErrPromptAborted {
+				continue
 			}
-			return nil
+			if err == io.EOF {
+				saveHistory(state, cfg.HistoryFile, cfg.HistoryMaxSize)
+				return nil
+			}
+			return fmt.Errorf("repl: read stdin: %w", err)
 		}
-		line := strings.TrimSpace(scanner.Text())
+		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
+
+		// Append to history only if not duplicate of previous (consecutive dedupe)
+		if line != lastHistoryLine {
+			state.AppendHistory(line)
+			lastHistoryLine = line
+		}
+		saveHistory(state, cfg.HistoryFile, cfg.HistoryMaxSize)
 
 		accept := protocol.AcceptHeaderSSE
 		if cfg.DefaultResponseType != "" {
@@ -210,4 +234,84 @@ func consumeNDJSON(r io.Reader, out *bufio.Writer, onSession func(sessionID stri
 		}
 	}
 	return scanner.Err()
+}
+
+// loadHistory reads history from path, dedupes consecutive lines, keeps the last maxLines,
+// and loads them into state. Ignores errors (e.g. file not found).
+func loadHistory(state *liner.State, path string, maxLines int) {
+	if path == "" || maxLines <= 0 {
+		return
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	var deduped []string
+	for scanner.Scan() {
+		line := scanner.Text()
+		if len(deduped) > 0 && deduped[len(deduped)-1] == line {
+			continue
+		}
+		deduped = append(deduped, line)
+	}
+	if scanner.Err() != nil {
+		return
+	}
+	start := 0
+	if len(deduped) > maxLines {
+		start = len(deduped) - maxLines
+	}
+	var buf bytes.Buffer
+	for i := start; i < len(deduped); i++ {
+		buf.WriteString(deduped[i])
+		buf.WriteByte('\n')
+	}
+	if buf.Len() > 0 {
+		state.ReadHistory(&buf)
+	}
+}
+
+// saveHistory writes state's history to path and trims the file to the last maxLines entries.
+// Creates the parent directory if needed. No-op if path is empty.
+func saveHistory(state *liner.State, path string, maxLines int) {
+	if path == "" {
+		return
+	}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return
+	}
+	state.WriteHistory(f)
+	if err := f.Close(); err != nil {
+		return
+	}
+	trimHistoryFile(path, maxLines)
+}
+
+// trimHistoryFile keeps only the last maxLines lines in the file at path.
+func trimHistoryFile(path string, maxLines int) {
+	if maxLines <= 0 {
+		return
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	lines := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+	if len(lines) == 1 && lines[0] == "" {
+		lines = nil
+	}
+	if len(lines) <= maxLines {
+		return
+	}
+	lines = lines[len(lines)-maxLines:]
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0600); err != nil {
+		return
+	}
 }

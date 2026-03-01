@@ -24,8 +24,10 @@ The server needs bind address and API key. If `DEEPSEEK_API_KEY` is empty, the s
 | `AI_ASSISTANT_SERVER_URL` | Full server URL (overrides SERVER_ADDR if set) | (optional) e.g. `http://127.0.0.1:8080` |
 | `AI_ASSISTANT_DEFAULT_REQUEST_TYPE` | Default request body type | (optional) e.g. `application/json` or `text/plain` |
 | `AI_ASSISTANT_DEFAULT_RESPONSE_TYPE` | Default Accept (stream format) | (optional) e.g. `text/event-stream` or `application/json` |
+| `AI_ASSISTANT_REPL_HISTORY_FILE` | Path to REPL input history file | `<UserConfigDir>/ai-assistant/repl_history` |
+| `AI_ASSISTANT_REPL_HISTORY_MAX` | Max number of history entries to keep | `1000` |
 
-The REPL uses the server address or URL to POST each turn. It does not use any Deepseek or API keys; the server performs all LLM calls.
+The REPL uses the server address or URL to POST each turn. It does not use any Deepseek or API keys; the server performs all LLM calls. Input supports readline-style history (Up/Down to navigate, Left/Right to move within the line); history is persisted to the configured file and bounded by the max size.
 
 ## Usage
 
