@@ -23,21 +23,25 @@ type sessionEntry struct {
 // Store holds session ID -> agent mapping. Safe for concurrent use.
 // LogOutput, when non-nil, is used for session lifecycle console messages instead of os.Stderr (for tests).
 // If runner is non-nil, created agents can use tools (file ops, exec, web, etc.).
+// If summarizer is non-nil, agents will summarize dropped context instead of discarding it.
 type Store struct {
-	mu        sync.RWMutex
-	agents    map[string]*sessionEntry
-	llm       llm.StreamCompleter
-	runner    tools.Runner
-	logOutput io.Writer
+	mu         sync.RWMutex
+	agents     map[string]*sessionEntry
+	llm        llm.StreamCompleter
+	runner     tools.Runner
+	summarizer llm.Summarizer
+	logOutput  io.Writer
 }
 
 // NewStore creates a session store that creates agents using the given LLM stream completer.
 // If runner is non-nil, agents will have access to tools (web search, file ops, exec_bash, etc.).
-func NewStore(llmClient llm.StreamCompleter, runner tools.Runner) *Store {
+// If summarizer is non-nil, context compression will summarize dropped turns instead of discarding them.
+func NewStore(llmClient llm.StreamCompleter, runner tools.Runner, summarizer llm.Summarizer) *Store {
 	return &Store{
-		agents: make(map[string]*sessionEntry),
-		llm:    llmClient,
-		runner: runner,
+		agents:     make(map[string]*sessionEntry),
+		llm:        llmClient,
+		runner:     runner,
+		summarizer: summarizer,
 	}
 }
 
@@ -56,7 +60,7 @@ func (s *Store) logOut() io.Writer {
 // Create creates a new session and returns its ID and agent. Caller must not use the ID for lookup until after Create returns.
 // Logs to the server console with a timestamp when the session is created.
 func (s *Store) Create() (sessionID string, ag *agent.Agent) {
-	ag = agent.New(s.llm, s.runner)
+	ag = agent.New(s.llm, s.runner, s.summarizer)
 	sessionID = uuid.New().String()
 	now := time.Now()
 	s.mu.Lock()

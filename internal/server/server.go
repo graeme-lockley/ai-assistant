@@ -42,7 +42,7 @@ func Run(ctx context.Context, cfg config.Server) error {
 	if err != nil {
 		return fmt.Errorf("tools: %w", err)
 	}
-	store := session.NewStore(llmClient, toolRunner)
+	store := session.NewStore(llmClient, toolRunner, llm.SummarizerFromCompleter(llmClient))
 	mux := http.NewServeMux()
 	mux.HandleFunc("/models", handleModels(cfg))
 	mux.HandleFunc("/model", handleModel(store, cfg))

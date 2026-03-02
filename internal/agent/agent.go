@@ -12,30 +12,46 @@ import (
 
 // Agent is a per-session personal agent with conversation history.
 type Agent struct {
-	llm    llm.StreamCompleter
-	runner tools.Runner // optional; when set, agent uses tools
-	history []llm.Message
+	llm        llm.StreamCompleter
+	runner     tools.Runner // optional; when set, agent uses tools
+	summarizer llm.Summarizer
+	history    []llm.Message
 }
 
 // New creates an agent that uses the given LLM stream completer.
 // If runner is non-nil, the agent will use tools (web search, file ops, exec, etc.) when the LLM requests them.
-func New(llmClient llm.StreamCompleter, runner tools.Runner) *Agent {
+// If summarizer is non-nil, context compression will summarize dropped turns instead of discarding them.
+func New(llmClient llm.StreamCompleter, runner tools.Runner, summarizer llm.Summarizer) *Agent {
 	return &Agent{
-		llm:    llmClient,
-		runner: runner,
-		history: nil,
+		llm:        llmClient,
+		runner:     runner,
+		summarizer: summarizer,
+		history:    nil,
 	}
 }
 
 // RespondStream appends the user message to history, streams the assistant reply via sendThinking (reasoning)
 // and sendChunk (main content), then appends the full reply to history. When a tool runner is set, runs
 // requested tools and continues until the LLM returns a final reply. model is an optional override; if empty,
-// the LLM uses its default.
+// the LLM uses its default. History is compressed to stay within context limits before each LLM call.
 func (a *Agent) RespondStream(ctx context.Context, userMessage string, sendThinking, sendChunk func(delta string) error, model string) error {
 	a.history = append(a.history, llm.Message{
 		Role:    "user",
 		Content: userMessage,
 	})
+	// Compress so we stay under the model's context limit.
+	if a.summarizer != nil {
+		compressed, err := llm.CompressMessagesWithSummarizer(ctx, a.history, llm.DefaultMaxContextTokens, a.summarizer)
+		if err != nil {
+			log.Printf("[context] summarization failed, falling back to drop: %v", err)
+			a.history = llm.CompressMessages(a.history, llm.DefaultMaxContextTokens)
+		} else {
+			a.history = compressed
+		}
+	} else {
+		a.history = llm.CompressMessages(a.history, llm.DefaultMaxContextTokens)
+	}
+
 	var fullReply strings.Builder
 	sendDelta := func(delta string) error {
 		if _, err := fullReply.WriteString(delta); err != nil {
@@ -49,6 +65,18 @@ func (a *Agent) RespondStream(ctx context.Context, userMessage string, sendThink
 			if err := a.respondStreamWithTools(ctx, withTools, sendThinking, sendDelta, model); err != nil {
 				return err
 			}
+			// Keep history bounded after turn (tool results may have been appended).
+			if a.summarizer != nil {
+				compressed, err := llm.CompressMessagesWithSummarizer(ctx, a.history, llm.DefaultMaxContextTokens, a.summarizer)
+				if err != nil {
+					log.Printf("[context] summarization failed, falling back to drop: %v", err)
+					a.history = llm.CompressMessages(a.history, llm.DefaultMaxContextTokens)
+				} else {
+					a.history = compressed
+				}
+			} else {
+				a.history = llm.CompressMessages(a.history, llm.DefaultMaxContextTokens)
+			}
 			return nil
 		}
 	}
@@ -60,6 +88,17 @@ func (a *Agent) RespondStream(ctx context.Context, userMessage string, sendThink
 		Role:    "assistant",
 		Content: fullReply.String(),
 	})
+	if a.summarizer != nil {
+		compressed, err := llm.CompressMessagesWithSummarizer(ctx, a.history, llm.DefaultMaxContextTokens, a.summarizer)
+		if err != nil {
+			log.Printf("[context] summarization failed, falling back to drop: %v", err)
+			a.history = llm.CompressMessages(a.history, llm.DefaultMaxContextTokens)
+		} else {
+			a.history = compressed
+		}
+	} else {
+		a.history = llm.CompressMessages(a.history, llm.DefaultMaxContextTokens)
+	}
 	return nil
 }
 
@@ -85,7 +124,7 @@ func (a *Agent) respondStreamWithTools(ctx context.Context, withTools llm.Stream
 		if len(res.ToolCalls) == 0 {
 			return nil
 		}
-		// Run each tool and append tool result messages
+		// Run each tool and append tool result messages (truncated to avoid context explosion).
 		for _, tc := range res.ToolCalls {
 			toolLogTrunc := 200
 			log.Printf("[tool] call id=%s name=%s args=%s", tc.ID, tc.Name, truncate(tc.Arguments, toolLogTrunc))
@@ -96,7 +135,7 @@ func (a *Agent) respondStreamWithTools(ctx context.Context, withTools llm.Stream
 			log.Printf("[tool] result id=%s name=%s result=%s err=%v", tc.ID, tc.Name, truncate(toolResult, toolLogTrunc), runErr)
 			a.history = append(a.history, llm.Message{
 				Role:       "tool",
-				Content:    toolResult,
+				Content:    llm.TruncateToolResult(toolResult),
 				ToolCallID: tc.ID,
 			})
 		}
