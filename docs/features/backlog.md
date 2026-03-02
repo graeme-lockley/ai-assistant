@@ -6,7 +6,7 @@ Planned features for the AI Assistant, in rough priority order.
 
 | # | Feature | Spec | Status |
 |---|---------|------|--------|
-| — | *No items* | | |
+| 1 | **Search API upgrade** — Use a real search API (e.g. Serper, Tavily, Google) with optional API key so `web_search` returns fresh web/news results; keep DuckDuckGo Instant Answer as fallback when no key is set. | [search-api-upgrade.md](backlog/search-api-upgrade.md) | Backlog |
 
 ## Done
 
