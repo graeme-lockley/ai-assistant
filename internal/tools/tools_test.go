@@ -6,10 +6,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/graemelockley/ai-assistant/internal/config"
 )
 
 func TestNewRunner_emptyRoot_usesCwd(t *testing.T) {
-	r, err := NewRunner("")
+	r, err := NewRunner("", config.SearchConfig{})
 	if err != nil {
 		t.Fatalf("NewRunner: %v", err)
 	}
@@ -20,7 +22,7 @@ func TestNewRunner_emptyRoot_usesCwd(t *testing.T) {
 
 func TestRunner_resolve_rejectsPathTraversal(t *testing.T) {
 	dir := t.TempDir()
-	r := &runner{root: dir}
+	r := &runner{root: dir, searchCfg: config.SearchConfig{}}
 	_, err := r.resolve("../../../etc/passwd")
 	if err == nil {
 		t.Fatal("expected error for path outside root")
@@ -36,7 +38,7 @@ func TestRunner_readFile_and_pathResolution(t *testing.T) {
 	if err := os.WriteFile(fpath, []byte("hello"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	r := &runner{root: dir}
+	r := &runner{root: dir, searchCfg: config.SearchConfig{}}
 	ctx := context.Background()
 	out, err := r.readFile(ctx, `{"path":"sub/file.txt"}`)
 	if err != nil {
@@ -55,7 +57,7 @@ func TestRunner_readDir(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(dir, "sub"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	r := &runner{root: dir}
+	r := &runner{root: dir, searchCfg: config.SearchConfig{}}
 	ctx := context.Background()
 	out, err := r.readDir(ctx, `{"path":"."}`)
 	if err != nil {
@@ -68,7 +70,7 @@ func TestRunner_readDir(t *testing.T) {
 
 func TestRunner_writeFile(t *testing.T) {
 	dir := t.TempDir()
-	r := &runner{root: dir}
+	r := &runner{root: dir, searchCfg: config.SearchConfig{}}
 	ctx := context.Background()
 	out, err := r.writeFile(ctx, `{"path":"out.txt","content":"written"}`)
 	if err != nil {
@@ -84,7 +86,7 @@ func TestRunner_writeFile(t *testing.T) {
 }
 
 func TestRunner_Run_unknownTool(t *testing.T) {
-	r := &runner{root: t.TempDir()}
+	r := &runner{root: t.TempDir(), searchCfg: config.SearchConfig{}}
 	_, err := r.Run(context.Background(), "no_such_tool", "{}")
 	if err == nil {
 		t.Fatal("expected error for unknown tool")

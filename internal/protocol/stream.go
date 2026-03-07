@@ -8,14 +8,14 @@ import (
 
 // HTTP stream content types and header name.
 const (
-	HeaderSessionID     = "X-Session-Id"
-	HeaderSessionClose  = "X-Session-Close"
-	ContentTypeJSON     = "application/json"
-	ContentTypeText     = "text/plain"
-	ContentTypeSSE      = "text/event-stream"
-	ContentTypeNDJSON   = "application/json" // streamed as NDJSON; Accept may match "application/json"
-	AcceptHeaderSSE     = "text/event-stream"
-	AcceptHeaderNDJSON  = "application/json"
+	HeaderSessionID    = "X-Session-Id"
+	HeaderSessionClose = "X-Session-Close"
+	ContentTypeJSON    = "application/json"
+	ContentTypeText    = "text/plain"
+	ContentTypeSSE     = "text/event-stream"
+	ContentTypeNDJSON  = "application/json" // streamed as NDJSON; Accept may match "application/json"
+	AcceptHeaderSSE    = "text/event-stream"
+	AcceptHeaderNDJSON = "application/json"
 )
 
 // Stream event types for SSE and NDJSON.

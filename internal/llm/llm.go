@@ -45,11 +45,11 @@ func NewClient(apiKey, baseURL, model string) (*Client, error) {
 // ReasoningContent is used for deepseek-reasoner thinking mode: assistant messages with tool_calls
 // must include the reasoning_content from that turn when sent back to the API.
 type Message struct {
-	Role              string
-	Content           string
-	ReasoningContent  string   // assistant messages in thinking mode (e.g. deepseek-reasoner)
-	ToolCalls         []ToolCall // for assistant messages that request tool execution
-	ToolCallID        string     // for tool result messages
+	Role             string
+	Content          string
+	ReasoningContent string     // assistant messages in thinking mode (e.g. deepseek-reasoner)
+	ToolCalls        []ToolCall // for assistant messages that request tool execution
+	ToolCallID       string     // for tool result messages
 }
 
 // ToolCall represents a single tool invocation from the LLM.
@@ -86,7 +86,7 @@ type StreamCompleterWithTools interface {
 type StreamWithToolsResult struct {
 	ToolCalls        []ToolCall
 	ReasoningContent string
-	Content         string
+	Content          string
 }
 
 func messagesToOpenAI(messages []Message) []openai.ChatCompletionMessage {
@@ -124,7 +124,7 @@ func messagesToOpenAI(messages []Message) []openai.ChatCompletionMessage {
 			tc := make([]openai.ToolCall, 0, len(m.ToolCalls))
 			for _, t := range m.ToolCalls {
 				tc = append(tc, openai.ToolCall{
-					ID: t.ID,
+					ID:   t.ID,
 					Type: openai.ToolTypeFunction,
 					Function: openai.FunctionCall{
 						Name:      t.Name,
@@ -235,13 +235,13 @@ func ToolDefinitions() []openai.Tool {
 				Parameters: jsonschema.Definition{
 					Type: jsonschema.Object,
 					Properties: map[string]jsonschema.Definition{
-						"path":        {Type: jsonschema.String, Description: "Relative path to the file"},
-						"content":     {Type: jsonschema.String, Description: "Content to insert or replace with"},
-						"strategy":    {Type: jsonschema.String, Description: "Either 'replace' or 'markers'"},
-						"start":       {Type: jsonschema.Integer, Description: "Start line (1-based) for replace"},
-						"end":         {Type: jsonschema.Integer, Description: "End line (1-based, inclusive) for replace"},
-						"begin":       {Type: jsonschema.String, Description: "Line marker for markers strategy"},
-						"end_marker":  {Type: jsonschema.String, Description: "End line marker for markers strategy"},
+						"path":       {Type: jsonschema.String, Description: "Relative path to the file"},
+						"content":    {Type: jsonschema.String, Description: "Content to insert or replace with"},
+						"strategy":   {Type: jsonschema.String, Description: "Either 'replace' or 'markers'"},
+						"start":      {Type: jsonschema.Integer, Description: "Start line (1-based) for replace"},
+						"end":        {Type: jsonschema.Integer, Description: "End line (1-based, inclusive) for replace"},
+						"begin":      {Type: jsonschema.String, Description: "Line marker for markers strategy"},
+						"end_marker": {Type: jsonschema.String, Description: "End line marker for markers strategy"},
 					},
 					Required: []string{"path", "content", "strategy"},
 				},

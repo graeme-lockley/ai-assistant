@@ -38,7 +38,13 @@ func Run(ctx context.Context, cfg config.Server) error {
 			return fmt.Errorf("root dir: %w", err)
 		}
 	}
-	toolRunner, err := tools.NewRunner(rootDir)
+	toolRunner, err := tools.NewRunner(rootDir, config.SearchConfig{
+		Provider:     cfg.SearchProvider,
+		SerperAPIKey: cfg.SerperAPIKey,
+		TavilyAPIKey: cfg.TavilyAPIKey,
+		GoogleAPIKey: cfg.GoogleAPIKey,
+		GoogleCSEID:  cfg.GoogleCSEID,
+	})
 	if err != nil {
 		return fmt.Errorf("tools: %w", err)
 	}

@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/graemelockley/ai-assistant/internal/config"
 )
 
 // Runner runs the fixed set of tools. All file paths are resolved relative to the root directory.
@@ -19,7 +21,8 @@ type Runner interface {
 
 // NewRunner returns a Runner that uses rootDir for file operations and exec_bash cwd.
 // If rootDir is empty, the process working directory is used.
-func NewRunner(rootDir string) (Runner, error) {
+// searchCfg provides search provider configuration.
+func NewRunner(rootDir string, searchCfg config.SearchConfig) (Runner, error) {
 	if rootDir == "" {
 		d, err := os.Getwd()
 		if err != nil {
@@ -31,11 +34,12 @@ func NewRunner(rootDir string) (Runner, error) {
 	if err != nil {
 		return nil, fmt.Errorf("tools root dir: %w", err)
 	}
-	return &runner{root: abs}, nil
+	return &runner{root: abs, searchCfg: searchCfg}, nil
 }
 
 type runner struct {
-	root string
+	root      string
+	searchCfg config.SearchConfig
 }
 
 // resolve resolves path relative to r.root and returns the absolute path if it is under root.
@@ -88,9 +92,37 @@ func (r *runner) webSearch(ctx context.Context, argsJSON string) (string, error)
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 		return "", fmt.Errorf("web_search args: %w", err)
 	}
-	// DuckDuckGo Instant Answer API (no key required). Note: returns instant answers / Wikipedia-style results;
-	// for many news or current-events queries the API returns empty.
-	url := "https://api.duckduckgo.com/?q=" + strings.ReplaceAll(args.Query, " ", "+") + "&format=json"
+
+	provider := r.searchCfg.Provider
+	hasKey := r.hasSearchKey(provider)
+
+	if provider == config.SearchProviderSerper && hasKey {
+		return r.serperSearch(ctx, args.Query)
+	}
+	if provider == config.SearchProviderTavily && hasKey {
+		return r.tavilySearch(ctx, args.Query)
+	}
+	if provider == config.SearchProviderGoogle && hasKey {
+		return r.googleSearch(ctx, args.Query)
+	}
+
+	return r.duckDuckGoSearch(ctx, args.Query)
+}
+
+func (r *runner) hasSearchKey(provider config.SearchProvider) bool {
+	switch provider {
+	case config.SearchProviderSerper:
+		return r.searchCfg.SerperAPIKey != ""
+	case config.SearchProviderTavily:
+		return r.searchCfg.TavilyAPIKey != ""
+	case config.SearchProviderGoogle:
+		return r.searchCfg.GoogleAPIKey != "" && r.searchCfg.GoogleCSEID != ""
+	}
+	return false
+}
+
+func (r *runner) duckDuckGoSearch(ctx context.Context, query string) (string, error) {
+	url := "https://api.duckduckgo.com/?q=" + strings.ReplaceAll(query, " ", "+") + "&format=json"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
@@ -106,8 +138,8 @@ func (r *runner) webSearch(ctx context.Context, argsJSON string) (string, error)
 	}
 	var data struct {
 		AbstractText  string `json:"AbstractText"`
-		AbstractURL    string `json:"AbstractURL"`
-		RelatedTopics  []struct {
+		AbstractURL   string `json:"AbstractURL"`
+		RelatedTopics []struct {
 			Text     string `json:"Text"`
 			FirstURL string `json:"FirstURL"`
 		} `json:"RelatedTopics"`
@@ -157,6 +189,148 @@ func (r *runner) webSearch(ctx context.Context, argsJSON string) (string, error)
 	result := strings.TrimSpace(out.String())
 	if result == "" {
 		result = "No instant answer or related results found for this query. The DuckDuckGo Instant Answer API has limited coverage (e.g. definitions, Wikipedia). For current news or broader web results, try rephrasing with more specific terms, or ask to fetch a specific article URL using the web_get tool."
+	}
+	return result, nil
+}
+
+func (r *runner) serperSearch(ctx context.Context, query string) (string, error) {
+	url := "https://google.serper.dev/search"
+	body := fmt.Sprintf(`{"q": "%s", "num": 10}`, query)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("X-API-Key", r.searchCfg.SerperAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("serper request: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	var data struct {
+		Organic []struct {
+			Title   string `json:"title"`
+			Snippet string `json:"snippet"`
+			Link    string `json:"link"`
+		} `json:"organic"`
+	}
+	if err := json.Unmarshal(respBody, &data); err != nil {
+		return "", fmt.Errorf("serper parse: %w", err)
+	}
+	var out strings.Builder
+	for i, res := range data.Organic {
+		if i >= 10 {
+			break
+		}
+		out.WriteString(res.Title)
+		out.WriteString("\n")
+		out.WriteString(res.Snippet)
+		out.WriteString("\n")
+		out.WriteString(res.Link)
+		out.WriteString("\n\n")
+	}
+	result := strings.TrimSpace(out.String())
+	if result == "" {
+		return "No search results found.", nil
+	}
+	return result, nil
+}
+
+func (r *runner) tavilySearch(ctx context.Context, query string) (string, error) {
+	url := "https://api.tavily.com/search"
+	body := fmt.Sprintf(`{"query": "%s", "max_results": 10}`, query)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("API-Key", r.searchCfg.TavilyAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("tavily request: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	var data struct {
+		Results []struct {
+			Title   string `json:"title"`
+			Content string `json:"content"`
+			URL     string `json:"url"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal(respBody, &data); err != nil {
+		return "", fmt.Errorf("tavily parse: %w", err)
+	}
+	var out strings.Builder
+	for i, res := range data.Results {
+		if i >= 10 {
+			break
+		}
+		out.WriteString(res.Title)
+		out.WriteString("\n")
+		out.WriteString(res.Content)
+		out.WriteString("\n")
+		out.WriteString(res.URL)
+		out.WriteString("\n\n")
+	}
+	result := strings.TrimSpace(out.String())
+	if result == "" {
+		return "No search results found.", nil
+	}
+	return result, nil
+}
+
+func (r *runner) googleSearch(ctx context.Context, query string) (string, error) {
+	url := "https://customsearch.googleapis.com/customsearch/v1"
+	url += "?key=" + r.searchCfg.GoogleAPIKey
+	url += "&cx=" + r.searchCfg.GoogleCSEID
+	url += "&q=" + strings.ReplaceAll(query, " ", "+")
+	url += "&num=10"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("google search request: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	var data struct {
+		Items []struct {
+			Title   string `json:"title"`
+			Snippet string `json:"snippet"`
+			Link    string `json:"link"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(respBody, &data); err != nil {
+		return "", fmt.Errorf("google search parse: %w", err)
+	}
+	var out strings.Builder
+	for i, res := range data.Items {
+		if i >= 10 {
+			break
+		}
+		out.WriteString(res.Title)
+		out.WriteString("\n")
+		out.WriteString(res.Snippet)
+		out.WriteString("\n")
+		out.WriteString(res.Link)
+		out.WriteString("\n\n")
+	}
+	result := strings.TrimSpace(out.String())
+	if result == "" {
+		return "No search results found.", nil
 	}
 	return result, nil
 }
@@ -280,12 +454,12 @@ func (r *runner) writeFile(ctx context.Context, argsJSON string) (string, error)
 
 func (r *runner) mergeFile(ctx context.Context, argsJSON string) (string, error) {
 	var args struct {
-		Path    string `json:"path"`
-		Content string `json:"content"`
-		Strategy string `json:"strategy"` // "replace" (use start/end) or "markers" (use begin/end)
-		Start   int    `json:"start"`     // 1-based line for replace
-		End     int    `json:"end"`       // 1-based line for replace (inclusive)
-		Begin   string `json:"begin"`     // line marker for markers strategy
+		Path      string `json:"path"`
+		Content   string `json:"content"`
+		Strategy  string `json:"strategy"`   // "replace" (use start/end) or "markers" (use begin/end)
+		Start     int    `json:"start"`      // 1-based line for replace
+		End       int    `json:"end"`        // 1-based line for replace (inclusive)
+		Begin     string `json:"begin"`      // line marker for markers strategy
 		EndMarker string `json:"end_marker"` // line marker for markers strategy
 	}
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {

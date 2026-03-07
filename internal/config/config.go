@@ -15,6 +15,23 @@ const (
 	DefaultHistoryMax    = 1000
 )
 
+type SearchProvider string
+
+const (
+	SearchProviderDuckDuckGo SearchProvider = "duckduckgo"
+	SearchProviderSerper     SearchProvider = "serper"
+	SearchProviderTavily     SearchProvider = "tavily"
+	SearchProviderGoogle     SearchProvider = "google"
+)
+
+type SearchConfig struct {
+	Provider     SearchProvider
+	SerperAPIKey string
+	TavilyAPIKey string
+	GoogleAPIKey string
+	GoogleCSEID  string
+}
+
 // Server holds configuration for the server personality.
 type Server struct {
 	BindAddr            string
@@ -23,6 +40,11 @@ type Server struct {
 	DeepseekModel       string
 	DefaultResponseType string // optional; e.g. "text/event-stream" or "application/json"
 	RootDir             string // root directory for file tools and exec_bash cwd; empty = process working directory
+	SearchProvider      SearchProvider
+	SerperAPIKey        string
+	TavilyAPIKey        string
+	GoogleAPIKey        string
+	GoogleCSEID         string
 }
 
 // REPL holds configuration for the REPL client.
@@ -37,6 +59,11 @@ type REPL struct {
 
 // ServerFromEnv loads server config from environment variables.
 func ServerFromEnv() Server {
+	searchProvider := SearchProvider(strings.ToLower(strings.TrimSpace(os.Getenv("AI_ASSISTANT_SEARCH_PROVIDER"))))
+	if searchProvider != SearchProviderDuckDuckGo && searchProvider != SearchProviderSerper &&
+		searchProvider != SearchProviderTavily && searchProvider != SearchProviderGoogle {
+		searchProvider = SearchProviderDuckDuckGo
+	}
 	s := Server{
 		BindAddr:            envOrDefault("AI_ASSISTANT_BIND", DefaultBindAddr),
 		DeepseekAPIKey:      os.Getenv("DEEPSEEK_API_KEY"),
@@ -44,6 +71,11 @@ func ServerFromEnv() Server {
 		DeepseekModel:       envOrDefault("DEEPSEEK_MODEL", DefaultDeepseekModel),
 		DefaultResponseType: os.Getenv("AI_ASSISTANT_DEFAULT_RESPONSE_TYPE"),
 		RootDir:             os.Getenv("AI_ASSISTANT_ROOT_DIR"),
+		SearchProvider:      searchProvider,
+		SerperAPIKey:        os.Getenv("SERPER_API_KEY"),
+		TavilyAPIKey:        os.Getenv("TAVILY_API_KEY"),
+		GoogleAPIKey:        os.Getenv("GOOGLE_API_KEY"),
+		GoogleCSEID:         os.Getenv("GOOGLE_CSE_ID"),
 	}
 	return s
 }
