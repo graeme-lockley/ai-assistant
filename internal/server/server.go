@@ -40,8 +40,6 @@ func Run(ctx context.Context, cfg config.Server) error {
 	}
 	toolRunner, err := tools.NewRunner(rootDir, config.SearchConfig{
 		Provider:     cfg.SearchProvider,
-		SerperAPIKey: cfg.SerperAPIKey,
-		TavilyAPIKey: cfg.TavilyAPIKey,
 		GoogleAPIKey: cfg.GoogleAPIKey,
 		GoogleCSEID:  cfg.GoogleCSEID,
 	})

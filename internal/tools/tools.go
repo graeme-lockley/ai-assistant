@@ -14,6 +14,12 @@ import (
 	"github.com/graemelockley/ai-assistant/internal/config"
 )
 
+// Search API endpoints (can be overridden for testing)
+var (
+	DuckDuckGoBaseURL   = "https://api.duckduckgo.com"
+	GoogleSearchBaseURL = "https://customsearch.googleapis.com/customsearch/v1"
+)
+
 // Runner runs the fixed set of tools. All file paths are resolved relative to the root directory.
 type Runner interface {
 	Run(ctx context.Context, toolName string, argsJSON string) (result string, err error)
@@ -21,7 +27,6 @@ type Runner interface {
 
 // NewRunner returns a Runner that uses rootDir for file operations and exec_bash cwd.
 // If rootDir is empty, the process working directory is used.
-// searchCfg provides search provider configuration.
 func NewRunner(rootDir string, searchCfg config.SearchConfig) (Runner, error) {
 	if rootDir == "" {
 		d, err := os.Getwd()
@@ -42,8 +47,6 @@ type runner struct {
 	searchCfg config.SearchConfig
 }
 
-// resolve resolves path relative to r.root and returns the absolute path if it is under root.
-// Returns error if the result is outside root (e.g. path contains ".." escape).
 func (r *runner) resolve(path string) (string, error) {
 	cleaned := filepath.Clean(path)
 	if filepath.IsAbs(cleaned) {
@@ -93,36 +96,18 @@ func (r *runner) webSearch(ctx context.Context, argsJSON string) (string, error)
 		return "", fmt.Errorf("web_search args: %w", err)
 	}
 
-	provider := r.searchCfg.Provider
-	hasKey := r.hasSearchKey(provider)
-
-	if provider == config.SearchProviderSerper && hasKey {
-		return r.serperSearch(ctx, args.Query)
-	}
-	if provider == config.SearchProviderTavily && hasKey {
-		return r.tavilySearch(ctx, args.Query)
-	}
-	if provider == config.SearchProviderGoogle && hasKey {
+	if r.searchCfg.Provider == config.SearchProviderGoogle && r.hasGoogleKey() {
 		return r.googleSearch(ctx, args.Query)
 	}
-
 	return r.duckDuckGoSearch(ctx, args.Query)
 }
 
-func (r *runner) hasSearchKey(provider config.SearchProvider) bool {
-	switch provider {
-	case config.SearchProviderSerper:
-		return r.searchCfg.SerperAPIKey != ""
-	case config.SearchProviderTavily:
-		return r.searchCfg.TavilyAPIKey != ""
-	case config.SearchProviderGoogle:
-		return r.searchCfg.GoogleAPIKey != "" && r.searchCfg.GoogleCSEID != ""
-	}
-	return false
+func (r *runner) hasGoogleKey() bool {
+	return r.searchCfg.GoogleAPIKey != "" && r.searchCfg.GoogleCSEID != ""
 }
 
 func (r *runner) duckDuckGoSearch(ctx context.Context, query string) (string, error) {
-	url := "https://api.duckduckgo.com/?q=" + strings.ReplaceAll(query, " ", "+") + "&format=json"
+	url := DuckDuckGoBaseURL + "/?q=" + strings.ReplaceAll(query, " ", "+") + "&format=json"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
@@ -188,107 +173,13 @@ func (r *runner) duckDuckGoSearch(ctx context.Context, query string) (string, er
 	}
 	result := strings.TrimSpace(out.String())
 	if result == "" {
-		result = "No instant answer or related results found for this query. The DuckDuckGo Instant Answer API has limited coverage (e.g. definitions, Wikipedia). For current news or broader web results, try rephrasing with more specific terms, or ask to fetch a specific article URL using the web_get tool."
-	}
-	return result, nil
-}
-
-func (r *runner) serperSearch(ctx context.Context, query string) (string, error) {
-	url := "https://google.serper.dev/search"
-	body := fmt.Sprintf(`{"q": "%s", "num": 10}`, query)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(body))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("X-API-Key", r.searchCfg.SerperAPIKey)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("serper request: %w", err)
-	}
-	defer resp.Body.Close()
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-	var data struct {
-		Organic []struct {
-			Title   string `json:"title"`
-			Snippet string `json:"snippet"`
-			Link    string `json:"link"`
-		} `json:"organic"`
-	}
-	if err := json.Unmarshal(respBody, &data); err != nil {
-		return "", fmt.Errorf("serper parse: %w", err)
-	}
-	var out strings.Builder
-	for i, res := range data.Organic {
-		if i >= 10 {
-			break
-		}
-		out.WriteString(res.Title)
-		out.WriteString("\n")
-		out.WriteString(res.Snippet)
-		out.WriteString("\n")
-		out.WriteString(res.Link)
-		out.WriteString("\n\n")
-	}
-	result := strings.TrimSpace(out.String())
-	if result == "" {
-		return "No search results found.", nil
-	}
-	return result, nil
-}
-
-func (r *runner) tavilySearch(ctx context.Context, query string) (string, error) {
-	url := "https://api.tavily.com/search"
-	body := fmt.Sprintf(`{"query": "%s", "max_results": 10}`, query)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(body))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("API-Key", r.searchCfg.TavilyAPIKey)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("tavily request: %w", err)
-	}
-	defer resp.Body.Close()
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-	var data struct {
-		Results []struct {
-			Title   string `json:"title"`
-			Content string `json:"content"`
-			URL     string `json:"url"`
-		} `json:"results"`
-	}
-	if err := json.Unmarshal(respBody, &data); err != nil {
-		return "", fmt.Errorf("tavily parse: %w", err)
-	}
-	var out strings.Builder
-	for i, res := range data.Results {
-		if i >= 10 {
-			break
-		}
-		out.WriteString(res.Title)
-		out.WriteString("\n")
-		out.WriteString(res.Content)
-		out.WriteString("\n")
-		out.WriteString(res.URL)
-		out.WriteString("\n\n")
-	}
-	result := strings.TrimSpace(out.String())
-	if result == "" {
-		return "No search results found.", nil
+		result = "No search results found."
 	}
 	return result, nil
 }
 
 func (r *runner) googleSearch(ctx context.Context, query string) (string, error) {
-	url := "https://customsearch.googleapis.com/customsearch/v1"
+	url := GoogleSearchBaseURL
 	url += "?key=" + r.searchCfg.GoogleAPIKey
 	url += "&cx=" + r.searchCfg.GoogleCSEID
 	url += "&q=" + strings.ReplaceAll(query, " ", "+")
@@ -361,7 +252,6 @@ func (r *runner) webGet(ctx context.Context, argsJSON string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// Return as text; assume UTF-8
 	return string(body), nil
 }
 
@@ -456,11 +346,11 @@ func (r *runner) mergeFile(ctx context.Context, argsJSON string) (string, error)
 	var args struct {
 		Path      string `json:"path"`
 		Content   string `json:"content"`
-		Strategy  string `json:"strategy"`   // "replace" (use start/end) or "markers" (use begin/end)
-		Start     int    `json:"start"`      // 1-based line for replace
-		End       int    `json:"end"`        // 1-based line for replace (inclusive)
-		Begin     string `json:"begin"`      // line marker for markers strategy
-		EndMarker string `json:"end_marker"` // line marker for markers strategy
+		Strategy  string `json:"strategy"`
+		Start     int    `json:"start"`
+		End       int    `json:"end"`
+		Begin     string `json:"begin"`
+		EndMarker string `json:"end_marker"`
 	}
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 		return "", fmt.Errorf("merge_file args: %w", err)
