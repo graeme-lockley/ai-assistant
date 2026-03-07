@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches-ignore: []
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Build
+        run: go build -o ai-assistant ./cmd/ai-assistant
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Check for issues
+        run: go vet ./...
