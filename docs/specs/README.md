@@ -6,6 +6,13 @@ Specification documents for the AI Assistant project.
 
 - **[vision.md](vision.md)** — High-level vision, in-scope and out-of-scope features.
 
+## Workspace (agent workspace and context)
+
+| Document | Description |
+|----------|-------------|
+| [workspace-design.md](workspace-design.md) | Unified AI agent workspace architecture: identity, memory, capabilities, logs, context rings, evolution over time. |
+| [context-loader-spec.md](context-loader-spec.md) | Context Loader: assemble minimum working context per request; fragment model, retrieval, ranking, selection; keeps agent relevant as workspace grows. |
+
 ## Requirements
 
 | Document | Description |
