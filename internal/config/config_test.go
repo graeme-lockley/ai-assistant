@@ -2,12 +2,15 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 )
 
 func TestServerFromEnv_Defaults(t *testing.T) {
 	// Clear relevant env vars so we get defaults
 	os.Unsetenv("AI_ASSISTANT_BIND")
+	os.Unsetenv("AI_ASSISTANT_WORKSPACE")
+	os.Unsetenv("AI_ASSISTANT_ROOT_DIR")
 	os.Unsetenv("DEEPSEEK_API_KEY")
 	os.Unsetenv("DEEPSEEK_BASE_URL")
 	os.Unsetenv("DEEPSEEK_MODEL")
@@ -25,6 +28,15 @@ func TestServerFromEnv_Defaults(t *testing.T) {
 	}
 	if cfg.DeepseekModel != DefaultDeepseekModel {
 		t.Errorf("DeepseekModel: got %q, want %q", cfg.DeepseekModel, DefaultDeepseekModel)
+	}
+	// Default workspace root when neither env is set (same logic as ServerFromEnv)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("UserHomeDir failed, cannot verify default RootDir")
+	}
+	wantRoot := filepath.Join(home, ".ai-assistant.workspace")
+	if cfg.RootDir != wantRoot {
+		t.Errorf("RootDir: got %q, want %q", cfg.RootDir, wantRoot)
 	}
 }
 
@@ -47,6 +59,39 @@ func TestServerFromEnv_Overrides(t *testing.T) {
 	}
 	if cfg.DeepseekModel != "custom-model" {
 		t.Errorf("DeepseekModel: got %q, want custom-model", cfg.DeepseekModel)
+	}
+}
+
+func TestServerFromEnv_RootDir_WorkspaceOverride(t *testing.T) {
+	t.Setenv("AI_ASSISTANT_WORKSPACE", "/custom/workspace")
+	os.Unsetenv("AI_ASSISTANT_ROOT_DIR")
+
+	cfg := ServerFromEnv()
+
+	if cfg.RootDir != "/custom/workspace" {
+		t.Errorf("RootDir: got %q, want /custom/workspace", cfg.RootDir)
+	}
+}
+
+func TestServerFromEnv_RootDir_RootDirFallback(t *testing.T) {
+	os.Unsetenv("AI_ASSISTANT_WORKSPACE")
+	t.Setenv("AI_ASSISTANT_ROOT_DIR", "/legacy/root")
+
+	cfg := ServerFromEnv()
+
+	if cfg.RootDir != "/legacy/root" {
+		t.Errorf("RootDir: got %q, want /legacy/root", cfg.RootDir)
+	}
+}
+
+func TestServerFromEnv_RootDir_WorkspaceTakesPrecedence(t *testing.T) {
+	t.Setenv("AI_ASSISTANT_WORKSPACE", "/workspace")
+	t.Setenv("AI_ASSISTANT_ROOT_DIR", "/root")
+
+	cfg := ServerFromEnv()
+
+	if cfg.RootDir != "/workspace" {
+		t.Errorf("RootDir: got %q, want /workspace (AI_ASSISTANT_WORKSPACE takes precedence)", cfg.RootDir)
 	}
 }
 

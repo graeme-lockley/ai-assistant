@@ -15,11 +15,10 @@ type mockStreamCompleter struct {
 	err   error
 }
 
-func (m *mockStreamCompleter) CompleteStream(ctx context.Context, messages []llm.Message, sendThinking, sendDelta func(delta string) error, model string) error {
+func (m *mockStreamCompleter) CompleteStream(ctx context.Context, messages []llm.Message, sendThinking, sendDelta func(delta string) error, model string, systemPrompt string) error {
 	if m.err != nil {
 		return m.err
 	}
-	// Stream reply in chunks (one rune at a time so we can verify streaming)
 	for _, r := range m.reply {
 		if err := sendDelta(string(r)); err != nil {
 			return err
@@ -31,7 +30,7 @@ func (m *mockStreamCompleter) CompleteStream(ctx context.Context, messages []llm
 func TestAgent_RespondStream_SendsChunksAndAppendsToHistory(t *testing.T) {
 	reply := "Hello from the assistant"
 	mock := &mockStreamCompleter{reply: reply}
-	ag := New(mock, nil, nil)
+	ag := New(mock, nil, nil, "")
 
 	var chunks []string
 	sendChunk := func(delta string) error {
@@ -60,7 +59,7 @@ func TestAgent_RespondStream_SendsChunksAndAppendsToHistory(t *testing.T) {
 func TestAgent_RespondStream_PropagatesLLMError(t *testing.T) {
 	wantErr := errors.New("llm failed")
 	mock := &mockStreamCompleter{err: wantErr}
-	ag := New(mock, nil, nil)
+	ag := New(mock, nil, nil, "")
 
 	err := ag.RespondStream(context.Background(), "hello", nil, func(string) error { return nil }, "")
 	if err == nil {
@@ -75,7 +74,7 @@ func TestAgent_RespondStream_PropagatesLLMError(t *testing.T) {
 
 func TestAgent_RespondStream_EmptyMessage(t *testing.T) {
 	mock := &mockStreamCompleter{reply: "ok"}
-	ag := New(mock, nil, nil)
+	ag := New(mock, nil, nil, "")
 
 	var chunks []string
 	err := ag.RespondStream(context.Background(), "", nil, func(delta string) error {

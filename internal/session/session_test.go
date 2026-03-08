@@ -13,12 +13,12 @@ import (
 // mockStreamCompleter implements llm.StreamCompleter for tests (no real LLM calls).
 type mockStreamCompleter struct{}
 
-func (m *mockStreamCompleter) CompleteStream(ctx context.Context, messages []llm.Message, sendThinking, sendDelta func(delta string) error, model string) error {
+func (m *mockStreamCompleter) CompleteStream(ctx context.Context, messages []llm.Message, sendThinking, sendDelta func(delta string) error, model string, systemPrompt string) error {
 	return nil
 }
 
 func TestCreate_logsTimestampAndSessionID(t *testing.T) {
-	store := NewStore(&mockStreamCompleter{}, nil, nil)
+	store := NewStore(&mockStreamCompleter{}, nil, nil, "")
 	var buf bytes.Buffer
 	store.SetLogOutput(&buf)
 
@@ -36,7 +36,7 @@ func TestCreate_logsTimestampAndSessionID(t *testing.T) {
 }
 
 func TestClose_logsTimestampSessionIDAndReason(t *testing.T) {
-	store := NewStore(&mockStreamCompleter{}, nil, nil)
+	store := NewStore(&mockStreamCompleter{}, nil, nil, "")
 	var buf bytes.Buffer
 	store.SetLogOutput(&buf)
 
@@ -62,7 +62,7 @@ func TestClose_logsTimestampSessionIDAndReason(t *testing.T) {
 }
 
 func TestClose_emptyReason_logsWithoutReasonSuffix(t *testing.T) {
-	store := NewStore(&mockStreamCompleter{}, nil, nil)
+	store := NewStore(&mockStreamCompleter{}, nil, nil, "")
 	var buf bytes.Buffer
 	store.SetLogOutput(&buf)
 
@@ -81,7 +81,7 @@ func TestClose_emptyReason_logsWithoutReasonSuffix(t *testing.T) {
 }
 
 func TestClose_unknownSession_noLogLine(t *testing.T) {
-	store := NewStore(&mockStreamCompleter{}, nil, nil)
+	store := NewStore(&mockStreamCompleter{}, nil, nil, "")
 	var buf bytes.Buffer
 	store.SetLogOutput(&buf)
 
@@ -93,7 +93,7 @@ func TestClose_unknownSession_noLogLine(t *testing.T) {
 }
 
 func TestClose_removesSession(t *testing.T) {
-	store := NewStore(&mockStreamCompleter{}, nil, nil)
+	store := NewStore(&mockStreamCompleter{}, nil, nil, "")
 	store.SetLogOutput(&bytes.Buffer{})
 
 	sessionID, ag := store.Create("")
@@ -109,7 +109,7 @@ func TestClose_removesSession(t *testing.T) {
 }
 
 func TestGetModel_SetModel(t *testing.T) {
-	store := NewStore(&mockStreamCompleter{}, nil, nil)
+	store := NewStore(&mockStreamCompleter{}, nil, nil, "")
 	store.SetLogOutput(&bytes.Buffer{})
 
 	sessionID, _ := store.Create("")

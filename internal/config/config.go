@@ -55,6 +55,7 @@ type SearchConfig struct {
 }
 
 // Server holds configuration for the server personality.
+// RootDir is the workspace root; file tools and workspace layout use this path.
 type Server struct {
 	BindAddr            string
 	DeepseekAPIKey      string
@@ -62,7 +63,7 @@ type Server struct {
 	DeepseekModel       string
 	AnthropicAPIKey     string
 	DefaultResponseType string
-	RootDir             string
+	RootDir             string // workspace root; set from AI_ASSISTANT_WORKSPACE, else AI_ASSISTANT_ROOT_DIR, else ~/.ai-assistant.workspace
 	SearchProvider      SearchProvider
 }
 
@@ -90,6 +91,15 @@ func ServerFromEnv() Server {
 	if searchProvider != SearchProviderDuckDuckGo {
 		searchProvider = SearchProviderDuckDuckGo
 	}
+	rootDir := os.Getenv("AI_ASSISTANT_WORKSPACE")
+	if rootDir == "" {
+		rootDir = os.Getenv("AI_ASSISTANT_ROOT_DIR")
+	}
+	if rootDir == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			rootDir = filepath.Join(home, ".ai-assistant.workspace")
+		}
+	}
 	s := Server{
 		BindAddr:            envOrDefault("AI_ASSISTANT_BIND", DefaultBindAddr),
 		DeepseekAPIKey:      os.Getenv("DEEPSEEK_API_KEY"),
@@ -97,7 +107,7 @@ func ServerFromEnv() Server {
 		DeepseekModel:       envOrDefault("DEEPSEEK_MODEL", DefaultDeepseekModel),
 		AnthropicAPIKey:     os.Getenv("ANTHROPIC_API_KEY"),
 		DefaultResponseType: os.Getenv("AI_ASSISTANT_DEFAULT_RESPONSE_TYPE"),
-		RootDir:             os.Getenv("AI_ASSISTANT_ROOT_DIR"),
+		RootDir:             strings.TrimSpace(rootDir),
 		SearchProvider:      searchProvider,
 	}
 	return s

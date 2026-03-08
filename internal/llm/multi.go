@@ -29,7 +29,7 @@ func (m *MultiProvider) Complete(ctx context.Context, messages []Message) (strin
 		err := m.anthropic.CompleteStream(ctx, messages, nil, func(delta string) error {
 			result.WriteString(delta)
 			return nil
-		}, "")
+		}, "", "")
 		return result.String(), err
 	}
 	if m.deepseek != nil {
@@ -39,31 +39,31 @@ func (m *MultiProvider) Complete(ctx context.Context, messages []Message) (strin
 }
 
 // CompleteStream streams a response from the appropriate provider.
-func (m *MultiProvider) CompleteStream(ctx context.Context, messages []Message, sendThinking, sendDelta func(delta string) error, model string) error {
+func (m *MultiProvider) CompleteStream(ctx context.Context, messages []Message, sendThinking, sendDelta func(delta string) error, model string, systemPrompt string) error {
 	if model == "" {
 		model = m.defaultModel
 	}
 	provider := getProviderForModel(model)
 	if provider == "anthropic" && m.anthropic != nil {
-		return m.anthropic.CompleteStream(ctx, messages, sendThinking, sendDelta, model)
+		return m.anthropic.CompleteStream(ctx, messages, sendThinking, sendDelta, model, systemPrompt)
 	}
 	if m.deepseek != nil {
-		return m.deepseek.CompleteStream(ctx, messages, sendThinking, sendDelta, model)
+		return m.deepseek.CompleteStream(ctx, messages, sendThinking, sendDelta, model, systemPrompt)
 	}
 	return nil
 }
 
 // CompleteStreamWithTools streams a response with tool support from the appropriate provider.
-func (m *MultiProvider) CompleteStreamWithTools(ctx context.Context, messages []Message, sendThinking, sendDelta func(delta string) error, model string) (*StreamWithToolsResult, error) {
+func (m *MultiProvider) CompleteStreamWithTools(ctx context.Context, messages []Message, sendThinking, sendDelta func(delta string) error, model string, systemPrompt string) (*StreamWithToolsResult, error) {
 	if model == "" {
 		model = m.defaultModel
 	}
 	provider := getProviderForModel(model)
 	if provider == "anthropic" && m.anthropic != nil {
-		return m.anthropic.CompleteStreamWithTools(ctx, messages, sendThinking, sendDelta, model)
+		return m.anthropic.CompleteStreamWithTools(ctx, messages, sendThinking, sendDelta, model, systemPrompt)
 	}
 	if m.deepseek != nil {
-		return m.deepseek.CompleteStreamWithTools(ctx, messages, sendThinking, sendDelta, model)
+		return m.deepseek.CompleteStreamWithTools(ctx, messages, sendThinking, sendDelta, model, systemPrompt)
 	}
 	return nil, nil
 }

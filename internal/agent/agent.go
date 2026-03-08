@@ -15,17 +15,20 @@ type Agent struct {
 	llm        llm.StreamCompleter
 	runner     tools.Runner // optional; when set, agent uses tools
 	summarizer llm.Summarizer
+	bootstrap  string       // workspace core (SOUL, AGENT, IDENTITY) for system prompt
 	history    []llm.Message
 }
 
 // New creates an agent that uses the given LLM stream completer.
-// If runner is non-nil, the agent will use tools (web search, file ops, exec, etc.) when the LLM requests them.
+// If runner is non-nil, the agent will use tools when the LLM requests them.
 // If summarizer is non-nil, context compression will summarize dropped turns instead of discarding them.
-func New(llmClient llm.StreamCompleter, runner tools.Runner, summarizer llm.Summarizer) *Agent {
+// bootstrap is optional workspace context (e.g. LoadBootstrap) prepended to the system prompt each turn.
+func New(llmClient llm.StreamCompleter, runner tools.Runner, summarizer llm.Summarizer, bootstrap string) *Agent {
 	return &Agent{
 		llm:        llmClient,
 		runner:     runner,
 		summarizer: summarizer,
+		bootstrap:  bootstrap,
 		history:    nil,
 	}
 }
@@ -81,7 +84,7 @@ func (a *Agent) RespondStream(ctx context.Context, userMessage string, sendThink
 		}
 	}
 
-	if err := a.llm.CompleteStream(ctx, a.history, sendThinking, sendDelta, model); err != nil {
+	if err := a.llm.CompleteStream(ctx, a.history, sendThinking, sendDelta, model, a.bootstrap); err != nil {
 		return fmt.Errorf("agent respond: %w", err)
 	}
 	a.history = append(a.history, llm.Message{
@@ -107,7 +110,7 @@ func (a *Agent) RespondStream(ctx context.Context, userMessage string, sendThink
 // reasoning_content on the next request.
 func (a *Agent) respondStreamWithTools(ctx context.Context, withTools llm.StreamCompleterWithTools, sendThinking, sendDelta func(delta string) error, model string) error {
 	for {
-		res, err := withTools.CompleteStreamWithTools(ctx, a.history, sendThinking, sendDelta, model)
+		res, err := withTools.CompleteStreamWithTools(ctx, a.history, sendThinking, sendDelta, model, a.bootstrap)
 		if err != nil {
 			return fmt.Errorf("agent respond: %w", err)
 		}

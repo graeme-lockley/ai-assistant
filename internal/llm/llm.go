@@ -67,18 +67,18 @@ type Completer interface {
 
 // StreamCompleter is the interface for streaming assistant replies. *Client implements it.
 // model is an optional override; if empty, the implementation uses its default model.
+// systemPrompt is optional workspace bootstrap (e.g. SOUL, AGENT, IDENTITY); prepended to the system message.
 // sendThinking is called for reasoning/thinking tokens (e.g. deepseek-reasoner); sendDelta for main content.
 type StreamCompleter interface {
-	CompleteStream(ctx context.Context, messages []Message, sendThinking, sendDelta func(delta string) error, model string) error
+	CompleteStream(ctx context.Context, messages []Message, sendThinking, sendDelta func(delta string) error, model string, systemPrompt string) error
 }
 
 // StreamCompleterWithTools extends StreamCompleter with tool support. *Client implements it.
-// model is an optional override; if empty, the implementation uses its default model.
 // When tool calls are returned, StreamWithToolsResult also contains ReasoningContent and Content
 // for that assistant turn so the caller can pass them back in the next request (required by deepseek-reasoner).
 type StreamCompleterWithTools interface {
 	StreamCompleter
-	CompleteStreamWithTools(ctx context.Context, messages []Message, sendThinking, sendDelta func(delta string) error, model string) (*StreamWithToolsResult, error)
+	CompleteStreamWithTools(ctx context.Context, messages []Message, sendThinking, sendDelta func(delta string) error, model string, systemPrompt string) (*StreamWithToolsResult, error)
 }
 
 // StreamWithToolsResult is the return value of CompleteStreamWithTools. When ToolCalls is non-nil,
@@ -89,15 +89,18 @@ type StreamWithToolsResult struct {
 	Content          string
 }
 
-func messagesToOpenAI(messages []Message) []openai.ChatCompletionMessage {
+func messagesToOpenAI(messages []Message, systemPrompt string) []openai.ChatCompletionMessage {
 	openaiMsgs := make([]openai.ChatCompletionMessage, 0, len(messages)+1)
-	// Prepend system message with current date, time, and timezone so the model can reason about "now".
 	now := time.Now()
 	zoneName, _ := now.Zone()
 	dateTimeCtx := fmt.Sprintf("Current date and time: %s (%s)", now.Format(time.RFC3339), zoneName)
+	systemContent := dateTimeCtx
+	if systemPrompt != "" {
+		systemContent = dateTimeCtx + "\n\n" + systemPrompt
+	}
 	openaiMsgs = append(openaiMsgs, openai.ChatCompletionMessage{
 		Role:    "system",
-		Content: dateTimeCtx,
+		Content: systemContent,
 	})
 	for _, m := range messages {
 		content := m.Content
@@ -254,7 +257,7 @@ func ToolDefinitions() []openai.Tool {
 func (c *Client) Complete(ctx context.Context, messages []Message) (string, error) {
 	req := openai.ChatCompletionRequest{
 		Model:    c.model,
-		Messages: messagesToOpenAI(messages),
+		Messages: messagesToOpenAI(messages, ""),
 	}
 	resp, err := c.client.CreateChatCompletion(ctx, req)
 	if err != nil {
@@ -268,14 +271,14 @@ func (c *Client) Complete(ctx context.Context, messages []Message) (string, erro
 
 // CompleteStream streams the assistant reply by calling sendThinking for reasoning content and sendDelta for main content.
 // If model is non-empty it is used; otherwise the client's default model is used.
-func (c *Client) CompleteStream(ctx context.Context, messages []Message, sendThinking, sendDelta func(delta string) error, model string) error {
+func (c *Client) CompleteStream(ctx context.Context, messages []Message, sendThinking, sendDelta func(delta string) error, model string, systemPrompt string) error {
 	modelToUse := model
 	if modelToUse == "" {
 		modelToUse = c.model
 	}
 	req := openai.ChatCompletionRequest{
 		Model:    modelToUse,
-		Messages: messagesToOpenAI(messages),
+		Messages: messagesToOpenAI(messages, systemPrompt),
 		Stream:   true,
 	}
 	stream, err := c.client.CreateChatCompletionStream(ctx, req)
@@ -317,14 +320,14 @@ func (c *Client) CompleteStream(ctx context.Context, messages []Message, sendThi
 // When tool calls are returned, the result includes ReasoningContent and Content for that turn
 // so the caller can include them in the assistant message (required by deepseek-reasoner).
 // If model is non-empty it is used; otherwise the client's default model is used.
-func (c *Client) CompleteStreamWithTools(ctx context.Context, messages []Message, sendThinking, sendDelta func(delta string) error, model string) (*StreamWithToolsResult, error) {
+func (c *Client) CompleteStreamWithTools(ctx context.Context, messages []Message, sendThinking, sendDelta func(delta string) error, model string, systemPrompt string) (*StreamWithToolsResult, error) {
 	modelToUse := model
 	if modelToUse == "" {
 		modelToUse = c.model
 	}
 	req := openai.ChatCompletionRequest{
 		Model:    modelToUse,
-		Messages: messagesToOpenAI(messages),
+		Messages: messagesToOpenAI(messages, systemPrompt),
 		Tools:    ToolDefinitions(),
 		Stream:   true,
 	}

@@ -17,6 +17,7 @@ import (
 	"github.com/graemelockley/ai-assistant/internal/protocol"
 	"github.com/graemelockley/ai-assistant/internal/session"
 	"github.com/graemelockley/ai-assistant/internal/tools"
+	"github.com/graemelockley/ai-assistant/internal/workspace"
 )
 
 // availableModels returns all known model IDs for /models.
@@ -62,12 +63,20 @@ func Run(ctx context.Context, cfg config.Server) error {
 	// Create unified provider
 	multiProvider := llm.NewMultiProvider(deepseekClient, anthropicClient, defaultModel)
 
-	rootDir := cfg.RootDir
-	if rootDir == "" {
+	var rootDir string
+	if cfg.RootDir != "" {
+		rootDir, err = workspace.ResolveRoot(cfg.RootDir)
+		if err != nil {
+			return fmt.Errorf("workspace root: %w", err)
+		}
+	} else {
 		rootDir, err = os.Getwd()
 		if err != nil {
 			return fmt.Errorf("root dir: %w", err)
 		}
+	}
+	if err := workspace.Ensure(rootDir); err != nil {
+		return fmt.Errorf("workspace init: %w", err)
 	}
 	toolRunner, err := tools.NewRunner(rootDir, config.SearchConfig{
 		Provider: cfg.SearchProvider,
@@ -76,7 +85,7 @@ func Run(ctx context.Context, cfg config.Server) error {
 		return fmt.Errorf("tools: %w", err)
 	}
 
-	store := session.NewStore(multiProvider, toolRunner, llm.SummarizerFromCompleter(multiProvider))
+	store := session.NewStore(multiProvider, toolRunner, llm.SummarizerFromCompleter(multiProvider), rootDir)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/models", handleModels(cfg))
 	mux.HandleFunc("/model", handleModel(store, cfg))

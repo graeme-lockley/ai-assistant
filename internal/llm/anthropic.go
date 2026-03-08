@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	openai "github.com/sashabaranov/go-openai"
 )
@@ -37,6 +38,7 @@ func NewAnthropicClient(apiKey, model string) (*AnthropicClient, error) {
 type anthropicRequest struct {
 	Model     string             `json:"model"`
 	MaxTokens int                `json:"max_tokens"`
+	System    string             `json:"system,omitempty"`
 	Messages  []anthropicMessage `json:"messages"`
 	Stream    bool               `json:"stream"`
 	Tools     []anthropicTool    `json:"tools,omitempty"`
@@ -61,15 +63,22 @@ type anthropicTool struct {
 	InputSchema any    `json:"input_schema"`
 }
 
-func (c *AnthropicClient) CompleteStream(ctx context.Context, messages []Message, sendThinking, sendDelta func(delta string) error, model string) error {
+func (c *AnthropicClient) CompleteStream(ctx context.Context, messages []Message, sendThinking, sendDelta func(delta string) error, model string, systemPrompt string) error {
 	modelToUse := model
 	if modelToUse == "" {
 		modelToUse = c.model
 	}
 
+	systemContent := systemPrompt
+	if systemContent != "" {
+		now := time.Now()
+		zoneName, _ := now.Zone()
+		systemContent = fmt.Sprintf("Current date and time: %s (%s)", now.Format(time.RFC3339), zoneName) + "\n\n" + systemContent
+	}
 	reqBody := anthropicRequest{
 		Model:     modelToUse,
 		MaxTokens: 4096,
+		System:    systemContent,
 		Messages:  convertMessagesToAnthropic(messages),
 		Stream:    true,
 	}
@@ -139,15 +148,22 @@ func (c *AnthropicClient) CompleteStream(ctx context.Context, messages []Message
 	}
 }
 
-func (c *AnthropicClient) CompleteStreamWithTools(ctx context.Context, messages []Message, sendThinking, sendDelta func(delta string) error, model string) (*StreamWithToolsResult, error) {
+func (c *AnthropicClient) CompleteStreamWithTools(ctx context.Context, messages []Message, sendThinking, sendDelta func(delta string) error, model string, systemPrompt string) (*StreamWithToolsResult, error) {
 	modelToUse := model
 	if modelToUse == "" {
 		modelToUse = c.model
 	}
 
+	systemContent := systemPrompt
+	if systemContent != "" {
+		now := time.Now()
+		zoneName, _ := now.Zone()
+		systemContent = fmt.Sprintf("Current date and time: %s (%s)", now.Format(time.RFC3339), zoneName) + "\n\n" + systemContent
+	}
 	reqBody := anthropicRequest{
 		Model:     modelToUse,
 		MaxTokens: 4096,
+		System:    systemContent,
 		Messages:  convertMessagesToAnthropic(messages),
 		Stream:    true,
 		Tools:     convertToolsToAnthropic(ToolDefinitions()),

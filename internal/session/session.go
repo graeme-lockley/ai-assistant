@@ -11,6 +11,7 @@ import (
 	"github.com/graemelockley/ai-assistant/internal/agent"
 	"github.com/graemelockley/ai-assistant/internal/llm"
 	"github.com/graemelockley/ai-assistant/internal/tools"
+	"github.com/graemelockley/ai-assistant/internal/workspace"
 )
 
 // sessionEntry holds the agent and metadata for one session.
@@ -21,27 +22,28 @@ type sessionEntry struct {
 }
 
 // Store holds session ID -> agent mapping. Safe for concurrent use.
+// rootDir is the workspace root; used to load SOUL/AGENT/IDENTITY into the system prompt for new sessions.
 // LogOutput, when non-nil, is used for session lifecycle console messages instead of os.Stderr (for tests).
-// If runner is non-nil, created agents can use tools (file ops, exec, web, etc.).
-// If summarizer is non-nil, agents will summarize dropped context instead of discarding it.
 type Store struct {
 	mu         sync.RWMutex
 	agents     map[string]*sessionEntry
 	llm        llm.StreamCompleter
 	runner     tools.Runner
 	summarizer llm.Summarizer
+	rootDir    string
 	logOutput  io.Writer
 }
 
 // NewStore creates a session store that creates agents using the given LLM stream completer.
-// If runner is non-nil, agents will have access to tools (web search, file ops, exec_bash, etc.).
-// If summarizer is non-nil, context compression will summarize dropped turns instead of discarding them.
-func NewStore(llmClient llm.StreamCompleter, runner tools.Runner, summarizer llm.Summarizer) *Store {
+// rootDir is the workspace root; agents get workspace core (SOUL, AGENT, IDENTITY) in the system prompt when non-empty.
+// If runner is non-nil, agents will have access to tools. If summarizer is non-nil, context compression will summarize dropped turns.
+func NewStore(llmClient llm.StreamCompleter, runner tools.Runner, summarizer llm.Summarizer, rootDir string) *Store {
 	return &Store{
 		agents:     make(map[string]*sessionEntry),
 		llm:        llmClient,
 		runner:     runner,
 		summarizer: summarizer,
+		rootDir:    rootDir,
 	}
 }
 
@@ -58,9 +60,13 @@ func (s *Store) logOut() io.Writer {
 }
 
 // Create creates a new session and returns its ID and agent. Caller must not use the ID for lookup until after Create returns.
-// If model is non-empty, it sets the initial model for the session. Logs to the server console with a timestamp when the session is created.
+// If model is non-empty, it sets the initial model for the session. Bootstrap (SOUL, AGENT, IDENTITY) is loaded from rootDir when set.
 func (s *Store) Create(model string) (sessionID string, ag *agent.Agent) {
-	ag = agent.New(s.llm, s.runner, s.summarizer)
+	bootstrap := ""
+	if s.rootDir != "" {
+		bootstrap = workspace.LoadBootstrap(s.rootDir)
+	}
+	ag = agent.New(s.llm, s.runner, s.summarizer, bootstrap)
 	sessionID = uuid.New().String()
 	now := time.Now()
 	s.mu.Lock()
