@@ -9,12 +9,17 @@ Configuration is read from **environment variables** only. No config file in the
 | Variable | Purpose | Default |
 |----------|---------|---------|
 | `AI_ASSISTANT_BIND` | HTTP listen address | `:8080` |
-| `DEEPSEEK_API_KEY` | Deepseek API key | (required; no default) |
+| `DEEPSEEK_API_KEY` | Deepseek API key | (one of Deepseek or Anthropic required) |
 | `DEEPSEEK_BASE_URL` | Deepseek API base URL | `https://api.deepseek.com` |
-| `DEEPSEEK_MODEL` | Model name | `deepseek-chat` |
+| `DEEPSEEK_MODEL` | Default Deepseek model | `deepseek-chat` |
+| `ANTHROPIC_API_KEY` | Anthropic API key (Claude) | (optional; multi-provider if both set) |
+| `AI_ASSISTANT_WORKSPACE` | Workspace root path | overrides default |
+| `AI_ASSISTANT_ROOT_DIR` | Workspace root path (fallback) | used if `AI_ASSISTANT_WORKSPACE` unset |
+| *(default workspace)* | When neither env set | `~/.ai-assistant.workspace` |
+| `TAVILY_API_KEY` | Tavily Search API key for web_search tool | (required for web_search) |
 | `AI_ASSISTANT_DEFAULT_RESPONSE_TYPE` | Default response stream type when client omits `Accept` | (optional) e.g. `text/event-stream` or `application/json` |
 
-The server needs bind address and API key. If `DEEPSEEK_API_KEY` is empty, the server exits with an error.
+The server needs at least one of `DEEPSEEK_API_KEY` or `ANTHROPIC_API_KEY`. File tools and session bootstrap use the workspace root (default `~/.ai-assistant.workspace`). The web_search tool requires `TAVILY_API_KEY`.
 
 ## REPL
 
@@ -31,5 +36,5 @@ The REPL uses the server address or URL to POST each turn. It does not use any D
 
 ## Usage
 
-- **Server**: Set `DEEPSEEK_API_KEY` (and optionally others), then run `ai-assistant server`.
+- **Server**: Set `DEEPSEEK_API_KEY` and/or `ANTHROPIC_API_KEY`; set `TAVILY_API_KEY` for web search. Optionally set `AI_ASSISTANT_WORKSPACE` (or `AI_ASSISTANT_ROOT_DIR`) for workspace root. Then run `ai-assistant server`.
 - **REPL**: Optionally set `AI_ASSISTANT_SERVER_ADDR` or `AI_ASSISTANT_SERVER_URL` if the server is not on `http://127.0.0.1:8080`, then run `ai-assistant repl`.

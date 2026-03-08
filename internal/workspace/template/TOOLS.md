@@ -4,7 +4,7 @@ Built-in (code). Paths relative to workspace root. Loader: `context/routing/tool
 
 ## List
 
-- **web_search** — Facts, definitions. Not news. `query`
+- **web_search** — Web search via Tavily (TAVILY_API_KEY required). Facts, definitions, general knowledge. `query`
 - **web_get** — Fetch URL as text. News, articles. `url`
 - **exec_bash** — Bash; cwd = workspace root. `command`
 - **read_file** — Read file. `path`

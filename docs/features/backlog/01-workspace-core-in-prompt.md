@@ -1,6 +1,6 @@
 # Feature: Workspace core in prompt (whole-file)
 
-**Status: Backlog**
+**Status: Backlog** (Ring 1 implemented: SOUL, AGENT, IDENTITY loaded into system prompt on each session create.)
 
 **Note: Stepping stone.** Replaced by Context loader v1 (04) once the fragment model exists. Purpose: get workspace identity into the prompt immediately before fragmentation is built.
 
@@ -31,7 +31,7 @@ Load the workspace "core self" (and optionally supporting files) into the system
 
 ## Acceptance criteria
 
-- [ ] System prompt includes SOUL.md, AGENT.md, IDENTITY.md in that order when present.
+- [x] System prompt includes SOUL.md, AGENT.md, IDENTITY.md in that order when present. (Ring 1 done via workspace.LoadBootstrap in session create.)
 - [ ] Optional: USER.md and MEMORY.md (and TASKS.md) included with a size cap.
 - [ ] Total system prompt size is bounded (configurable); overflow truncates from the end.
 - [ ] Prompt text reflects workspace-design §9 (priority order and rules).

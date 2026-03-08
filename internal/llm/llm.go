@@ -149,7 +149,7 @@ func ToolDefinitions() []openai.Tool {
 			Type: openai.ToolTypeFunction,
 			Function: &openai.FunctionDefinition{
 				Name:        "web_search",
-				Description: "Run a web search for factual information. Best for definitions, facts, and general knowledge. Not recommended for current news or recent events.",
+				Description: "Run a web search via Tavily. Best for definitions, facts, and general knowledge. Requires TAVILY_API_KEY. For current news use web_get with a news URL.",
 				Parameters: jsonschema.Definition{
 					Type: jsonschema.Object,
 					Properties: map[string]jsonschema.Definition{

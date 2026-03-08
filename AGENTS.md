@@ -16,10 +16,13 @@ export DEEPSEEK_API_KEY=your-key
 ```
 
 Optional environment variables:
-- `BIND_ADDR=:8080` - server bind address (default `:8080`)
+- `AI_ASSISTANT_BIND=:8080` - server bind address (default `:8080`)
 - `DEEPSEEK_BASE_URL` - override API URL
 - `DEEPSEEK_MODEL` - override model (default `deepseek-chat`)
-- `AI_ASSISTANT_ROOT_DIR` - root directory for file tools and exec_bash
+- `ANTHROPIC_API_KEY` - Anthropic API key (optional; multi-provider if both set)
+- `AI_ASSISTANT_WORKSPACE` - workspace root (default `~/.ai-assistant.workspace` when unset)
+- `AI_ASSISTANT_ROOT_DIR` - workspace root fallback if `AI_ASSISTANT_WORKSPACE` unset
+- `TAVILY_API_KEY` - required for web_search tool
 
 ### Run the REPL client
 ```bash

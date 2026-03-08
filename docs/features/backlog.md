@@ -6,8 +6,7 @@ Planned features for the AI Assistant, in rough priority order. Workspace and co
 
 | # | Feature | Spec | Status |
 |---|---------|------|--------|
-| 00 | **Workspace setup** — workspace.template, default `~/.ai-assistant.workspace`, startup scaffold and verify. | [00-workspace-setup.md](backlog/00-workspace-setup.md) | Backlog |
-| 01 | **Workspace core in prompt** — Load SOUL, AGENT, IDENTITY (and optionally USER, MEMORY, TASKS) as whole files into system prompt; stepping stone replaced by context loader v1. | [01-workspace-core-in-prompt.md](backlog/01-workspace-core-in-prompt.md) | Backlog |
+| 01 | **Workspace core in prompt** — Load SOUL, AGENT, IDENTITY (and optionally USER, MEMORY, TASKS) as whole files into system prompt; stepping stone replaced by context loader v1. **Ring 1 done** (SOUL, AGENT, IDENTITY in system prompt). | [01-workspace-core-in-prompt.md](backlog/01-workspace-core-in-prompt.md) | Backlog |
 | 02 | **Session log** — Append each turn to workspace logs/; append-only; never loaded into prompt by default. | [02-session-log.md](backlog/02-session-log.md) | Backlog |
 | 03 | **Fragment model and index** — Parse workspace markdown into fragments by heading; JSONL index under context/indexes/; `ai-assistant index` CLI command. | [03-fragment-model-and-index.md](backlog/03-fragment-model-and-index.md) | Backlog |
 | 04 | **Context loader v1** — Core (Ring 1) always; simple retrieval for USER, MEMORY, TASKS from index; basic token budgets; emit working context bundle. | [04-context-loader-v1.md](backlog/04-context-loader-v1.md) | Backlog |
@@ -23,6 +22,7 @@ Planned features for the AI Assistant, in rough priority order. Workspace and co
 
 | Feature | Spec |
 |---------|------|
+| **Workspace setup** — workspace.template, default `~/.ai-assistant.workspace`, startup Ensure/repair, file tools use workspace root. | [00-workspace-setup.md](done/00-workspace-setup.md) |
 | **Control plane** — Slash commands from REPL: /exit (close session, then quit), /models (list models), /model (set/query session model), /help (client-side list of commands). Models hardcoded for v1. | [control-plane.md](done/control-plane.md) |
 | **Tool collection** — Web search, web get, exec bash, read/write/merge file, read dir. Tools respect workspace constraints. | [tool-collection.md](done/tool-collection.md) |
 | **REPL history** — Readline-style history in the REPL; Up/Down to navigate history, Left/Right within the line. History persisted across sessions. | [repl-history.md](done/repl-history.md) |

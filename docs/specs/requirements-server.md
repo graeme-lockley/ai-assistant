@@ -2,7 +2,7 @@
 
 ## Role
 
-The server is the long-running personality that listens for HTTP. It maintains a **session store** (session ID → agent). Each session has one personal agent that maintains conversation history and uses the Deepseek API to stream replies.
+The server is the long-running personality that listens for HTTP. It maintains a **session store** (session ID → agent). Each session has one personal agent that maintains conversation history and uses the LLM (Deepseek and/or Anthropic) to stream replies. The workspace root is resolved at startup; new sessions are bootstrapped with workspace core (SOUL, AGENT, IDENTITY) in the system prompt.
 
 ## Behavior
 
@@ -16,16 +16,19 @@ The server is the long-running personality that listens for HTTP. It maintains a
 
 ## Dependencies
 
-- **Config**: Bind address, Deepseek API key, base URL, model, optional default response type (from environment).
+- **Config**: Bind address, Deepseek and/or Anthropic API keys, workspace root (default `~/.ai-assistant.workspace`), Tavily API key for web search, optional default response type (from environment).
+- **Workspace**: Resolve workspace root (expand `~`); Ensure() creates or repairs layout from embedded template; LoadBootstrap() reads SOUL.md, AGENT.md, IDENTITY.md for system prompt.
 - **Protocol**: ParseRequestBody, SSE/NDJSON encoders, header names.
-- **Session**: Session store (create/lookup by ID).
-- **Agent**: New(llmClient), RespondStream(ctx, userMessage, sendChunk).
-- **LLM**: Single shared client created at startup; agents use it for streaming completion.
+- **Session**: Session store (create/lookup by ID) with workspace root; on Create, load bootstrap and pass to agent.
+- **Agent**: New(llmClient, runner, summarizer, bootstrap); RespondStream uses bootstrap as system prompt each turn; tool runner uses workspace root.
+- **Tools**: Runner with workspace root and Tavily API key; web_search uses Tavily (POST); file tools and exec_bash use root.
+- **LLM**: Multi-provider (Deepseek, Anthropic); streaming with optional system prompt (date + workspace bootstrap).
 
 ## Lifecycle
 
 1. Load server config (env).
-2. Create LLM client (Deepseek); fail if API key is missing.
-3. Create session store with LLM client.
-4. Start HTTP server with POST handler.
-5. On signal, cancel context and shut down server.
+2. Resolve workspace root; run workspace.Ensure(root).
+3. Create LLM client(s) (Deepseek and/or Anthropic); fail if both API keys missing.
+4. Create tool runner (root, Tavily API key) and session store (LLM, runner, summarizer, root).
+5. Start HTTP server with POST handler.
+6. On signal, cancel context and shut down server.

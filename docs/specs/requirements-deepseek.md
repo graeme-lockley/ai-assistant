@@ -2,11 +2,11 @@
 
 ## Role
 
-The server uses the Deepseek API as the only LLM backend. The API is OpenAI-compatible, so the implementation uses an OpenAI-style client with a custom base URL and API key.
+The server supports the Deepseek API as one of its LLM backends (the other is Anthropic). The Deepseek API is OpenAI-compatible, so the implementation uses an OpenAI-style client with a custom base URL and API key. At least one of `DEEPSEEK_API_KEY` or `ANTHROPIC_API_KEY` is required for the server to start.
 
 ## Configuration
 
-- **API key**: Required. Set via `DEEPSEEK_API_KEY`. The server must not start without it.
+- **API key**: Set via `DEEPSEEK_API_KEY`. Required if using Deepseek; server may instead or additionally use Anthropic.
 - **Base URL**: Optional; default `https://api.deepseek.com`. Set via `DEEPSEEK_BASE_URL` if needed (e.g. for a proxy or alternate endpoint).
 - **Model**: Optional; default `deepseek-chat`. Set via `DEEPSEEK_MODEL`. Other options include `deepseek-reasoner` for chain-of-thought.
 

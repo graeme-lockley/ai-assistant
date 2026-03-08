@@ -51,7 +51,8 @@ const (
 )
 
 type SearchConfig struct {
-	Provider SearchProvider
+	Provider     SearchProvider
+	TavilyAPIKey string // required for web_search; set from TAVILY_API_KEY
 }
 
 // Server holds configuration for the server personality.
@@ -65,6 +66,7 @@ type Server struct {
 	DefaultResponseType string
 	RootDir             string // workspace root; set from AI_ASSISTANT_WORKSPACE, else AI_ASSISTANT_ROOT_DIR, else ~/.ai-assistant.workspace
 	SearchProvider      SearchProvider
+	TavilyAPIKey        string // for web_search; set from TAVILY_API_KEY
 }
 
 // REPL holds configuration for the REPL client.
@@ -109,6 +111,7 @@ func ServerFromEnv() Server {
 		DefaultResponseType: os.Getenv("AI_ASSISTANT_DEFAULT_RESPONSE_TYPE"),
 		RootDir:             strings.TrimSpace(rootDir),
 		SearchProvider:      searchProvider,
+		TavilyAPIKey:        os.Getenv("TAVILY_API_KEY"),
 	}
 	return s
 }

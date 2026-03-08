@@ -14,8 +14,8 @@ import (
 	"github.com/graemelockley/ai-assistant/internal/config"
 )
 
-// Search API endpoint (can be overridden for testing)
-var DuckDuckGoBaseURL = "https://api.duckduckgo.com"
+// TavilySearchURL is the Tavily Search API endpoint (can be overridden for testing).
+var TavilySearchURL = "https://api.tavily.com/search"
 
 // Runner runs the fixed set of tools. All file paths are resolved relative to the root directory.
 type Runner interface {
@@ -92,73 +92,70 @@ func (r *runner) webSearch(ctx context.Context, argsJSON string) (string, error)
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 		return "", fmt.Errorf("web_search args: %w", err)
 	}
-
-	return r.duckDuckGoSearch(ctx, args.Query)
+	if r.searchCfg.TavilyAPIKey == "" {
+		return "", fmt.Errorf("web_search: TAVILY_API_KEY is required; set it in the environment")
+	}
+	return r.tavilySearch(ctx, args.Query)
 }
 
-func (r *runner) duckDuckGoSearch(ctx context.Context, query string) (string, error) {
-	url := DuckDuckGoBaseURL + "/?q=" + strings.ReplaceAll(query, " ", "+") + "&format=json"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+func (r *runner) tavilySearch(ctx context.Context, query string) (string, error) {
+	body := struct {
+		Query        string `json:"query"`
+		SearchDepth  string `json:"search_depth"`
+		MaxResults   int    `json:"max_results"`
+	}{Query: query, SearchDepth: "basic", MaxResults: 10}
+	bodyBytes, err := json.Marshal(body)
+	if err != nil {
+		return "", fmt.Errorf("web_search: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, TavilySearchURL, strings.NewReader(string(bodyBytes)))
 	if err != nil {
 		return "", err
 	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+r.searchCfg.TavilyAPIKey)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("web_search request: %w", err)
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", err
 	}
-	var data struct {
-		AbstractText  string `json:"AbstractText"`
-		AbstractURL   string `json:"AbstractURL"`
-		RelatedTopics []struct {
-			Text     string `json:"Text"`
-			FirstURL string `json:"FirstURL"`
-		} `json:"RelatedTopics"`
-		Results []struct {
-			FirstURL string `json:"FirstURL"`
-			Text     string `json:"Text"`
-		} `json:"Results"`
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("web_search: %s %s", resp.Status, strings.TrimSpace(string(respBody)))
 	}
-	if err := json.Unmarshal(body, &data); err != nil {
+	var data struct {
+		Results []struct {
+			Title   string `json:"title"`
+			URL     string `json:"url"`
+			Content string `json:"content"`
+		} `json:"results"`
+		Answer string `json:"answer"`
+	}
+	if err := json.Unmarshal(respBody, &data); err != nil {
 		return "", fmt.Errorf("web_search parse: %w", err)
 	}
 	var out strings.Builder
-	if data.AbstractText != "" {
-		out.WriteString(data.AbstractText)
-		if data.AbstractURL != "" {
-			out.WriteString("\n")
-			out.WriteString(data.AbstractURL)
-		}
+	if data.Answer != "" {
+		out.WriteString(strings.TrimSpace(data.Answer))
 		out.WriteString("\n\n")
 	}
-	for i, t := range data.RelatedTopics {
-		if i >= 10 {
-			break
-		}
-		if t.Text != "" {
-			out.WriteString(t.Text)
-			if t.FirstURL != "" {
-				out.WriteString(" ")
-				out.WriteString(t.FirstURL)
+	for _, res := range data.Results {
+		if res.Title != "" || res.Content != "" {
+			if res.Title != "" {
+				out.WriteString(res.Title)
+				if res.URL != "" {
+					out.WriteString(" — ")
+					out.WriteString(res.URL)
+				}
+				out.WriteString("\n")
 			}
-			out.WriteString("\n")
-		}
-	}
-	for i, res := range data.Results {
-		if i >= 10 {
-			break
-		}
-		if res.Text != "" {
-			out.WriteString(res.Text)
-			if res.FirstURL != "" {
-				out.WriteString(" ")
-				out.WriteString(res.FirstURL)
+			if res.Content != "" {
+				out.WriteString(strings.TrimSpace(res.Content))
+				out.WriteString("\n\n")
 			}
-			out.WriteString("\n")
 		}
 	}
 	result := strings.TrimSpace(out.String())

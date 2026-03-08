@@ -22,5 +22,5 @@ Specification documents for the AI Assistant project.
 | [requirements-repl.md](requirements-repl.md) | REPL personality: connect, read/send/receive/print loop, exit behavior. |
 | [requirements-ask.md](requirements-ask.md) | Ask command: single-shot client, session per request, JSON output. |
 | [requirements-protocol.md](requirements-protocol.md) | Wire format: TCP, length-prefixed JSON frames, request/response/error shapes. |
-| [requirements-deepseek.md](requirements-deepseek.md) | Deepseek integration: API key, base URL, model; no streaming in v1. |
+| [requirements-deepseek.md](requirements-deepseek.md) | Deepseek integration: API key, base URL, model; streaming; multi-provider with Anthropic. |
 | [requirements-config.md](requirements-config.md) | Configuration: env vars, defaults, server vs REPL. |

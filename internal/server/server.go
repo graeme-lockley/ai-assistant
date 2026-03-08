@@ -79,7 +79,8 @@ func Run(ctx context.Context, cfg config.Server) error {
 		return fmt.Errorf("workspace init: %w", err)
 	}
 	toolRunner, err := tools.NewRunner(rootDir, config.SearchConfig{
-		Provider: cfg.SearchProvider,
+		Provider:     cfg.SearchProvider,
+		TavilyAPIKey: cfg.TavilyAPIKey,
 	})
 	if err != nil {
 		return fmt.Errorf("tools: %w", err)
