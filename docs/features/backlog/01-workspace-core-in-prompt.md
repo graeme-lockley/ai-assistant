@@ -2,6 +2,8 @@
 
 **Status: Backlog**
 
+**Note: Stepping stone.** Replaced by Context loader v1 (04) once the fragment model exists. Purpose: get workspace identity into the prompt immediately before fragmentation is built.
+
 ## Summary
 
 Load the workspace "core self" (and optionally supporting files) into the system prompt as whole files, in the priority order defined in workspace-design. No fragmentation yet—files are loaded in full up to a size cap or truncated. Delivers the minimal system prompt from workspace-design §9 so the agent has identity, role, and (optionally) user/memory context.
@@ -25,7 +27,7 @@ Load the workspace "core self" (and optionally supporting files) into the system
 
 ## Dependencies
 
-- **Workspace scaffold**: Workspace root and core files must exist.
+- **Workspace setup** (00): Workspace root and core files must exist.
 
 ## Acceptance criteria
 
