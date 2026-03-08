@@ -146,7 +146,7 @@ func ToolDefinitions() []openai.Tool {
 			Type: openai.ToolTypeFunction,
 			Function: &openai.FunctionDefinition{
 				Name:        "web_search",
-				Description: "Run a web search and return snippets and links.",
+				Description: "Run a web search for factual information. Best for definitions, facts, and general knowledge. Not recommended for current news or recent events.",
 				Parameters: jsonschema.Definition{
 					Type: jsonschema.Object,
 					Properties: map[string]jsonschema.Definition{
@@ -160,7 +160,7 @@ func ToolDefinitions() []openai.Tool {
 			Type: openai.ToolTypeFunction,
 			Function: &openai.FunctionDefinition{
 				Name:        "web_get",
-				Description: "Fetch a URL and return the response body as text.",
+				Description: "Fetch a URL and return the page content as text. Best for current news, articles, and live content. Use this for news and recent events.",
 				Parameters: jsonschema.Definition{
 					Type: jsonschema.Object,
 					Properties: map[string]jsonschema.Definition{

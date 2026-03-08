@@ -58,15 +58,19 @@ func (s *Store) logOut() io.Writer {
 }
 
 // Create creates a new session and returns its ID and agent. Caller must not use the ID for lookup until after Create returns.
-// Logs to the server console with a timestamp when the session is created.
-func (s *Store) Create() (sessionID string, ag *agent.Agent) {
+// If model is non-empty, it sets the initial model for the session. Logs to the server console with a timestamp when the session is created.
+func (s *Store) Create(model string) (sessionID string, ag *agent.Agent) {
 	ag = agent.New(s.llm, s.runner, s.summarizer)
 	sessionID = uuid.New().String()
 	now := time.Now()
 	s.mu.Lock()
-	s.agents[sessionID] = &sessionEntry{agent: ag, createdAt: now, model: ""}
+	s.agents[sessionID] = &sessionEntry{agent: ag, createdAt: now, model: model}
 	s.mu.Unlock()
-	fmt.Fprintf(s.logOut(), "%s [session] created %s\n", now.UTC().Format(time.RFC3339), sessionID)
+	if model != "" {
+		fmt.Fprintf(s.logOut(), "%s [session] created %s model=%s\n", now.UTC().Format(time.RFC3339), sessionID, model)
+	} else {
+		fmt.Fprintf(s.logOut(), "%s [session] created %s\n", now.UTC().Format(time.RFC3339), sessionID)
+	}
 	return sessionID, ag
 }
 
@@ -92,13 +96,22 @@ func (s *Store) GetModel(sessionID string) string {
 	return ent.model
 }
 
-// SetModel sets the model override for the session. No-op if session not found.
+// SetModel sets the model override for the session. Logs to the server console when the model changes.
+// No-op if session not found.
 func (s *Store) SetModel(sessionID string, model string) {
 	s.mu.Lock()
-	if ent := s.agents[sessionID]; ent != nil {
-		ent.model = model
+	ent := s.agents[sessionID]
+	if ent == nil {
+		s.mu.Unlock()
+		return
 	}
+	oldModel := ent.model
+	ent.model = model
 	s.mu.Unlock()
+	if model != oldModel {
+		ts := time.Now().UTC().Format(time.RFC3339)
+		fmt.Fprintf(s.logOut(), "%s [session] %s model=%s\n", ts, sessionID, model)
+	}
 }
 
 // Close removes the session and logs to the server console with a timestamp and optional reason.

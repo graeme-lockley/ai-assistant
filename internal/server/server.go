@@ -19,18 +19,49 @@ import (
 	"github.com/graemelockley/ai-assistant/internal/tools"
 )
 
-// availableModels is the hardcoded list of model IDs for /models. Multiple models will be added later.
-var availableModels = []string{"deepseek-chat", "deepseek-reasoner"}
+// availableModels returns all known model IDs for /models.
+func availableModels() []string {
+	models := config.KnownModels()
+	result := make([]string, len(models))
+	for i, m := range models {
+		result[i] = m.Name
+	}
+	return result
+}
 
 // Run starts the HTTP server and blocks until shutdown.
 func Run(ctx context.Context, cfg config.Server) error {
-	if cfg.DeepseekAPIKey == "" {
-		return fmt.Errorf("DEEPSEEK_API_KEY is required")
+	if cfg.DeepseekAPIKey == "" && cfg.AnthropicAPIKey == "" {
+		return fmt.Errorf("DEEPSEEK_API_KEY or ANTHROPIC_API_KEY is required")
 	}
-	llmClient, err := llm.NewClient(cfg.DeepseekAPIKey, cfg.DeepseekBaseURL, cfg.DeepseekModel)
-	if err != nil {
-		return fmt.Errorf("llm: %w", err)
+
+	var deepseekClient *llm.Client
+	var anthropicClient *llm.AnthropicClient
+	var err error
+
+	if cfg.DeepseekAPIKey != "" {
+		deepseekClient, err = llm.NewClient(cfg.DeepseekAPIKey, cfg.DeepseekBaseURL, cfg.DeepseekModel)
+		if err != nil {
+			return fmt.Errorf("deepseek llm: %w", err)
+		}
 	}
+
+	if cfg.AnthropicAPIKey != "" {
+		anthropicClient, err = llm.NewAnthropicClient(cfg.AnthropicAPIKey, config.DefaultAnthropicModel)
+		if err != nil {
+			return fmt.Errorf("anthropic llm: %w", err)
+		}
+	}
+
+	// Determine default model
+	defaultModel := cfg.DeepseekModel
+	if defaultModel == "" {
+		defaultModel = config.DefaultDeepseekModel
+	}
+
+	// Create unified provider
+	multiProvider := llm.NewMultiProvider(deepseekClient, anthropicClient, defaultModel)
+
 	rootDir := cfg.RootDir
 	if rootDir == "" {
 		rootDir, err = os.Getwd()
@@ -39,14 +70,13 @@ func Run(ctx context.Context, cfg config.Server) error {
 		}
 	}
 	toolRunner, err := tools.NewRunner(rootDir, config.SearchConfig{
-		Provider:     cfg.SearchProvider,
-		GoogleAPIKey: cfg.GoogleAPIKey,
-		GoogleCSEID:  cfg.GoogleCSEID,
+		Provider: cfg.SearchProvider,
 	})
 	if err != nil {
 		return fmt.Errorf("tools: %w", err)
 	}
-	store := session.NewStore(llmClient, toolRunner, llm.SummarizerFromCompleter(llmClient))
+
+	store := session.NewStore(multiProvider, toolRunner, llm.SummarizerFromCompleter(multiProvider))
 	mux := http.NewServeMux()
 	mux.HandleFunc("/models", handleModels(cfg))
 	mux.HandleFunc("/model", handleModel(store, cfg))
@@ -102,7 +132,7 @@ func handleChat(store *session.Store, cfg config.Server) http.HandlerFunc {
 			}
 		} else {
 			newSession = true
-			sessionID, ag = store.Create()
+			sessionID, ag = store.Create(cfg.DeepseekModel)
 			w.Header().Set(protocol.HeaderSessionID, sessionID)
 		}
 
@@ -111,7 +141,7 @@ func handleChat(store *session.Store, cfg config.Server) http.HandlerFunc {
 		if contentType == "" {
 			contentType = protocol.ContentTypeJSON
 		}
-		message, err := protocol.ParseRequestBody(r.Body, contentType)
+		message, requestedModel, err := protocol.ParseRequestBody(r.Body, contentType)
 		if err != nil {
 			if strings.Contains(err.Error(), "unsupported content type") {
 				http.Error(w, err.Error(), http.StatusUnsupportedMediaType)
@@ -119,6 +149,11 @@ func handleChat(store *session.Store, cfg config.Server) http.HandlerFunc {
 			}
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
+		}
+
+		// If model is specified in request and this is a new session, set it
+		if newSession && requestedModel != "" {
+			store.SetModel(sessionID, requestedModel)
 		}
 
 		// Response format: from Accept (config default added later)
@@ -235,7 +270,7 @@ func handleModels(cfg config.Server) http.HandlerFunc {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(availableModels)
+		_ = json.NewEncoder(w).Encode(availableModels())
 	}
 }
 
@@ -275,7 +310,7 @@ func handleModel(store *session.Store, cfg config.Server) http.HandlerFunc {
 				return
 			}
 			valid := false
-			for _, m := range availableModels {
+			for _, m := range availableModels() {
 				if m == model {
 					valid = true
 					break

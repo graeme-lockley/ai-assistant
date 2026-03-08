@@ -96,3 +96,47 @@ func TestEnvOrDefault(t *testing.T) {
 		}
 	}
 }
+
+func TestAskFromEnv_Default(t *testing.T) {
+	os.Unsetenv("AI_ASSISTANT_SERVER_URL")
+	os.Unsetenv("AI_ASSISTANT_MODEL")
+	os.Unsetenv("AI_ASSISTANT_DEFAULT_REQUEST_TYPE")
+	os.Unsetenv("AI_ASSISTANT_DEFAULT_RESPONSE_TYPE")
+
+	cfg := AskFromEnv()
+
+	if cfg.ServerURL != "" {
+		t.Errorf("ServerURL: got %q, want empty", cfg.ServerURL)
+	}
+	if cfg.Model != "" {
+		t.Errorf("Model: got %q, want empty", cfg.Model)
+	}
+	if cfg.DefaultRequestType != "" {
+		t.Errorf("DefaultRequestType: got %q, want empty", cfg.DefaultRequestType)
+	}
+	if cfg.DefaultResponseType != "" {
+		t.Errorf("DefaultResponseType: got %q, want empty", cfg.DefaultResponseType)
+	}
+}
+
+func TestAskFromEnv_Override(t *testing.T) {
+	t.Setenv("AI_ASSISTANT_SERVER_URL", "http://custom:8080")
+	t.Setenv("AI_ASSISTANT_MODEL", "deepseek-reasoner")
+	t.Setenv("AI_ASSISTANT_DEFAULT_REQUEST_TYPE", "text/plain")
+	t.Setenv("AI_ASSISTANT_DEFAULT_RESPONSE_TYPE", "application/json")
+
+	cfg := AskFromEnv()
+
+	if cfg.ServerURL != "http://custom:8080" {
+		t.Errorf("ServerURL: got %q, want http://custom:8080", cfg.ServerURL)
+	}
+	if cfg.Model != "deepseek-reasoner" {
+		t.Errorf("Model: got %q, want deepseek-reasoner", cfg.Model)
+	}
+	if cfg.DefaultRequestType != "text/plain" {
+		t.Errorf("DefaultRequestType: got %q, want text/plain", cfg.DefaultRequestType)
+	}
+	if cfg.DefaultResponseType != "application/json" {
+		t.Errorf("DefaultResponseType: got %q, want application/json", cfg.DefaultResponseType)
+	}
+}

@@ -8,24 +8,50 @@ import (
 )
 
 const (
-	DefaultBindAddr      = ":8080"
-	DefaultServerAddr    = "127.0.0.1:8080"
-	DefaultDeepseekURL   = "https://api.deepseek.com"
-	DefaultDeepseekModel = "deepseek-chat"
-	DefaultHistoryMax    = 1000
+	DefaultBindAddr       = ":8080"
+	DefaultServerAddr     = "127.0.0.1:8080"
+	DefaultDeepseekURL    = "https://api.deepseek.com"
+	DefaultDeepseekModel  = "deepseek-chat"
+	DefaultAnthropicModel = "claude-3-5-sonnet-20241022"
+	DefaultHistoryMax     = 1000
 )
+
+// ModelInfo contains information about a model.
+type ModelInfo struct {
+	Name     string
+	Provider string
+}
+
+// KnownModels returns all known models with their provider info.
+func KnownModels() []ModelInfo {
+	return []ModelInfo{
+		{Name: "deepseek-chat", Provider: "deepseek"},
+		{Name: "deepseek-reasoner", Provider: "deepseek"},
+		{Name: "claude-3-5-sonnet-20241022", Provider: "anthropic"},
+		{Name: "claude-3-5-haiku-20241022", Provider: "anthropic"},
+		{Name: "claude-3-opus-20240229", Provider: "anthropic"},
+		{Name: "claude-3-haiku-20240307", Provider: "anthropic"},
+	}
+}
+
+// GetModelProvider returns the provider for a given model name.
+func GetModelProvider(model string) string {
+	for _, m := range KnownModels() {
+		if m.Name == model {
+			return m.Provider
+		}
+	}
+	return ""
+}
 
 type SearchProvider string
 
 const (
 	SearchProviderDuckDuckGo SearchProvider = "duckduckgo"
-	SearchProviderGoogle     SearchProvider = "google"
 )
 
 type SearchConfig struct {
-	Provider     SearchProvider
-	GoogleAPIKey string
-	GoogleCSEID  string
+	Provider SearchProvider
 }
 
 // Server holds configuration for the server personality.
@@ -34,11 +60,10 @@ type Server struct {
 	DeepseekAPIKey      string
 	DeepseekBaseURL     string
 	DeepseekModel       string
-	DefaultResponseType string // optional; e.g. "text/event-stream" or "application/json"
-	RootDir             string // root directory for file tools and exec_bash cwd; empty = process working directory
+	AnthropicAPIKey     string
+	DefaultResponseType string
+	RootDir             string
 	SearchProvider      SearchProvider
-	GoogleAPIKey        string
-	GoogleCSEID         string
 }
 
 // REPL holds configuration for the REPL client.
@@ -51,10 +76,18 @@ type REPL struct {
 	HistoryMaxSize      int    // max history entries to keep; default 1000
 }
 
+// Ask holds configuration for the ask command (single-shot client).
+type Ask struct {
+	ServerURL           string // optional full URL, e.g. "http://127.0.0.1:8080"; if set overrides ServerAddr for HTTP
+	Model               string // optional model override; empty means use server default
+	DefaultRequestType  string // optional; e.g. "application/json" or "text/plain"
+	DefaultResponseType string // optional; e.g. "text/event-stream" or "application/json"
+}
+
 // ServerFromEnv loads server config from environment variables.
 func ServerFromEnv() Server {
 	searchProvider := SearchProvider(strings.ToLower(strings.TrimSpace(os.Getenv("AI_ASSISTANT_SEARCH_PROVIDER"))))
-	if searchProvider != SearchProviderDuckDuckGo && searchProvider != SearchProviderGoogle {
+	if searchProvider != SearchProviderDuckDuckGo {
 		searchProvider = SearchProviderDuckDuckGo
 	}
 	s := Server{
@@ -62,11 +95,10 @@ func ServerFromEnv() Server {
 		DeepseekAPIKey:      os.Getenv("DEEPSEEK_API_KEY"),
 		DeepseekBaseURL:     envOrDefault("DEEPSEEK_BASE_URL", DefaultDeepseekURL),
 		DeepseekModel:       envOrDefault("DEEPSEEK_MODEL", DefaultDeepseekModel),
+		AnthropicAPIKey:     os.Getenv("ANTHROPIC_API_KEY"),
 		DefaultResponseType: os.Getenv("AI_ASSISTANT_DEFAULT_RESPONSE_TYPE"),
 		RootDir:             os.Getenv("AI_ASSISTANT_ROOT_DIR"),
 		SearchProvider:      searchProvider,
-		GoogleAPIKey:        os.Getenv("GOOGLE_API_KEY"),
-		GoogleCSEID:         os.Getenv("GOOGLE_CSE_ID"),
 	}
 	return s
 }
@@ -92,6 +124,16 @@ func REPLFromEnv() REPL {
 		DefaultResponseType: os.Getenv("AI_ASSISTANT_DEFAULT_RESPONSE_TYPE"),
 		HistoryFile:         historyFile,
 		HistoryMaxSize:      historyMax,
+	}
+}
+
+// AskFromEnv loads Ask config from environment variables.
+func AskFromEnv() Ask {
+	return Ask{
+		ServerURL:           os.Getenv("AI_ASSISTANT_SERVER_URL"),
+		Model:               os.Getenv("AI_ASSISTANT_MODEL"),
+		DefaultRequestType:  os.Getenv("AI_ASSISTANT_DEFAULT_REQUEST_TYPE"),
+		DefaultResponseType: os.Getenv("AI_ASSISTANT_DEFAULT_RESPONSE_TYPE"),
 	}
 }
 

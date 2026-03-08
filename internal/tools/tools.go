@@ -14,11 +14,8 @@ import (
 	"github.com/graemelockley/ai-assistant/internal/config"
 )
 
-// Search API endpoints (can be overridden for testing)
-var (
-	DuckDuckGoBaseURL   = "https://api.duckduckgo.com"
-	GoogleSearchBaseURL = "https://customsearch.googleapis.com/customsearch/v1"
-)
+// Search API endpoint (can be overridden for testing)
+var DuckDuckGoBaseURL = "https://api.duckduckgo.com"
 
 // Runner runs the fixed set of tools. All file paths are resolved relative to the root directory.
 type Runner interface {
@@ -96,14 +93,7 @@ func (r *runner) webSearch(ctx context.Context, argsJSON string) (string, error)
 		return "", fmt.Errorf("web_search args: %w", err)
 	}
 
-	if r.searchCfg.Provider == config.SearchProviderGoogle && r.hasGoogleKey() {
-		return r.googleSearch(ctx, args.Query)
-	}
 	return r.duckDuckGoSearch(ctx, args.Query)
-}
-
-func (r *runner) hasGoogleKey() bool {
-	return r.searchCfg.GoogleAPIKey != "" && r.searchCfg.GoogleCSEID != ""
 }
 
 func (r *runner) duckDuckGoSearch(ctx context.Context, query string) (string, error) {
@@ -174,54 +164,6 @@ func (r *runner) duckDuckGoSearch(ctx context.Context, query string) (string, er
 	result := strings.TrimSpace(out.String())
 	if result == "" {
 		result = "No search results found."
-	}
-	return result, nil
-}
-
-func (r *runner) googleSearch(ctx context.Context, query string) (string, error) {
-	url := GoogleSearchBaseURL
-	url += "?key=" + r.searchCfg.GoogleAPIKey
-	url += "&cx=" + r.searchCfg.GoogleCSEID
-	url += "&q=" + strings.ReplaceAll(query, " ", "+")
-	url += "&num=10"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return "", err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("google search request: %w", err)
-	}
-	defer resp.Body.Close()
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-	var data struct {
-		Items []struct {
-			Title   string `json:"title"`
-			Snippet string `json:"snippet"`
-			Link    string `json:"link"`
-		} `json:"items"`
-	}
-	if err := json.Unmarshal(respBody, &data); err != nil {
-		return "", fmt.Errorf("google search parse: %w", err)
-	}
-	var out strings.Builder
-	for i, res := range data.Items {
-		if i >= 10 {
-			break
-		}
-		out.WriteString(res.Title)
-		out.WriteString("\n")
-		out.WriteString(res.Snippet)
-		out.WriteString("\n")
-		out.WriteString(res.Link)
-		out.WriteString("\n\n")
-	}
-	result := strings.TrimSpace(out.String())
-	if result == "" {
-		return "No search results found.", nil
 	}
 	return result, nil
 }

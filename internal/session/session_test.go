@@ -22,7 +22,7 @@ func TestCreate_logsTimestampAndSessionID(t *testing.T) {
 	var buf bytes.Buffer
 	store.SetLogOutput(&buf)
 
-	sessionID, _ := store.Create()
+	sessionID, _ := store.Create("")
 
 	if sessionID == "" {
 		t.Fatal("expected non-empty session ID")
@@ -40,7 +40,7 @@ func TestClose_logsTimestampSessionIDAndReason(t *testing.T) {
 	var buf bytes.Buffer
 	store.SetLogOutput(&buf)
 
-	sessionID, _ := store.Create()
+	sessionID, _ := store.Create("")
 	buf.Reset()
 
 	store.Close(sessionID, "explicit")
@@ -66,7 +66,7 @@ func TestClose_emptyReason_logsWithoutReasonSuffix(t *testing.T) {
 	var buf bytes.Buffer
 	store.SetLogOutput(&buf)
 
-	sessionID, _ := store.Create()
+	sessionID, _ := store.Create("")
 	buf.Reset()
 
 	store.Close(sessionID, "")
@@ -96,7 +96,7 @@ func TestClose_removesSession(t *testing.T) {
 	store := NewStore(&mockStreamCompleter{}, nil, nil)
 	store.SetLogOutput(&bytes.Buffer{})
 
-	sessionID, ag := store.Create()
+	sessionID, ag := store.Create("")
 	if store.Get(sessionID) != ag {
 		t.Fatal("Get should return agent before Close")
 	}
@@ -112,7 +112,7 @@ func TestGetModel_SetModel(t *testing.T) {
 	store := NewStore(&mockStreamCompleter{}, nil, nil)
 	store.SetLogOutput(&bytes.Buffer{})
 
-	sessionID, _ := store.Create()
+	sessionID, _ := store.Create("")
 	if got := store.GetModel(sessionID); got != "" {
 		t.Errorf("GetModel new session: got %q, want empty", got)
 	}

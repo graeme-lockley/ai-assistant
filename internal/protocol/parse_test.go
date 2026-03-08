@@ -7,7 +7,7 @@ import (
 
 func TestParseRequestBody_JSON(t *testing.T) {
 	body := `{"message": "hello world"}`
-	got, err := ParseRequestBody(strings.NewReader(body), ContentTypeJSON)
+	got, _, err := ParseRequestBody(strings.NewReader(body), ContentTypeJSON)
 	if err != nil {
 		t.Fatalf("ParseRequestBody: %v", err)
 	}
@@ -18,7 +18,7 @@ func TestParseRequestBody_JSON(t *testing.T) {
 
 func TestParseRequestBody_JSONEmptyMessage(t *testing.T) {
 	body := `{"message": ""}`
-	got, err := ParseRequestBody(strings.NewReader(body), ContentTypeJSON)
+	got, _, err := ParseRequestBody(strings.NewReader(body), ContentTypeJSON)
 	if err != nil {
 		t.Fatalf("ParseRequestBody: %v", err)
 	}
@@ -29,7 +29,7 @@ func TestParseRequestBody_JSONEmptyMessage(t *testing.T) {
 
 func TestParseRequestBody_TextPlain(t *testing.T) {
 	body := "hello from text/plain"
-	got, err := ParseRequestBody(strings.NewReader(body), ContentTypeText)
+	got, _, err := ParseRequestBody(strings.NewReader(body), ContentTypeText)
 	if err != nil {
 		t.Fatalf("ParseRequestBody: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestParseRequestBody_TextPlain(t *testing.T) {
 }
 
 func TestParseRequestBody_UnsupportedType(t *testing.T) {
-	_, err := ParseRequestBody(strings.NewReader("x"), "application/octet-stream")
+	_, _, err := ParseRequestBody(strings.NewReader("x"), "application/octet-stream")
 	if err == nil {
 		t.Fatal("expected error for unsupported content type")
 	}

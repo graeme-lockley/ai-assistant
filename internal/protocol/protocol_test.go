@@ -69,7 +69,7 @@ func TestResponse_ErrorJSONRoundTrip(t *testing.T) {
 func TestParseRequestBody_UsesRequestStruct(t *testing.T) {
 	// ParseRequestBody for application/json should unmarshal into the same shape as Request
 	body := `{"message": "test"}`
-	msg, err := ParseRequestBody(bytes.NewReader([]byte(body)), ContentTypeJSON)
+	msg, _, err := ParseRequestBody(bytes.NewReader([]byte(body)), ContentTypeJSON)
 	if err != nil {
 		t.Fatalf("ParseRequestBody: %v", err)
 	}
