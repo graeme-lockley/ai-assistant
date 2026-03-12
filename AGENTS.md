@@ -23,6 +23,9 @@ Optional environment variables:
 - `AI_ASSISTANT_WORKSPACE` - workspace root (default `~/.ai-assistant.workspace` when unset)
 - `AI_ASSISTANT_ROOT_DIR` - workspace root fallback if `AI_ASSISTANT_WORKSPACE` unset
 - `TAVILY_API_KEY` - required for web_search tool
+- `AI_ASSISTANT_BOOTSTRAP_RING2` - set to `false` or `0` to exclude USER.md, MEMORY.md, TASKS.md from system prompt (default: included, so the assistant knows the user)
+- `AI_ASSISTANT_SYSTEM_PROMPT_MAX_TOKENS` - max tokens for entire system prompt; 0 = no cap (default 4096)
+- `AI_ASSISTANT_RING2_MAX_TOKENS` - per-file token cap for Ring 2 files (default 500)
 
 ### Run the REPL client
 ```bash

@@ -3,7 +3,9 @@ package workspace
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestEnsure_NonexistentRoot_CreatesAndPopulates(t *testing.T) {
@@ -172,5 +174,132 @@ func TestResolveRoot_ExpandTilde(t *testing.T) {
 	}
 	if got != want {
 		t.Errorf("ResolveRoot(~/.ai-assistant.workspace): got %q, want %q", got, want)
+	}
+}
+
+func TestLoadBootstrap_MatchesBuildSystemPrompt_ZeroOpts(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range CoreFiles {
+		if err := os.WriteFile(filepath.Join(root, name), []byte("# "+name+"\n\ncontent"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gotLoad := LoadBootstrap(root)
+	gotBuild := BuildSystemPrompt(root, BootstrapOptions{})
+	if gotLoad != gotBuild {
+		t.Error("LoadBootstrap and BuildSystemPrompt(root, zero opts) should return the same string")
+	}
+}
+
+func TestBuildSystemPrompt_Ring1Only_IncludesMinimalAndCoreFiles(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "SOUL.md"), []byte("soul content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "AGENT.md"), []byte("agent content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// IDENTITY missing
+
+	out := BuildSystemPrompt(root, BootstrapOptions{})
+	if !strings.Contains(out, minimalPrompt) {
+		t.Error("output should contain minimal prompt")
+	}
+	if !strings.Contains(out, "## SOUL.md") || !strings.Contains(out, "soul content") {
+		t.Error("output should contain SOUL.md section")
+	}
+	if !strings.Contains(out, "## AGENT.md") || !strings.Contains(out, "agent content") {
+		t.Error("output should contain AGENT.md section")
+	}
+	if strings.Contains(out, "## IDENTITY.md") {
+		t.Error("output should not contain IDENTITY.md when file is missing")
+	}
+}
+
+func TestBuildSystemPrompt_IncludeRing2_AddsUserMemoryTasks(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range CoreFiles {
+		if err := os.WriteFile(filepath.Join(root, name), []byte("core"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "USER.md"), []byte("user content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "MEMORY.md"), []byte("memory content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// TASKS.md missing
+
+	opts := BootstrapOptions{IncludeRing2: true, Ring2MaxTokens: 500}
+	out := BuildSystemPrompt(root, opts)
+	if !strings.Contains(out, "## USER.md") || !strings.Contains(out, "user content") {
+		t.Error("output should contain USER.md when IncludeRing2 true")
+	}
+	if !strings.Contains(out, "## MEMORY.md") || !strings.Contains(out, "memory content") {
+		t.Error("output should contain MEMORY.md when IncludeRing2 true")
+	}
+	if strings.Contains(out, "## TASKS.md") {
+		t.Error("output should not contain TASKS.md when file is missing")
+	}
+}
+
+func TestBuildSystemPrompt_Ring2_PerFileCapTruncates(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range CoreFiles {
+		if err := os.WriteFile(filepath.Join(root, name), []byte("x"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// USER.md content longer than 10 tokens (~40 chars)
+	longUser := string(make([]byte, 200)) // 200 chars >> 10 tokens
+	if err := os.WriteFile(filepath.Join(root, "USER.md"), []byte(longUser), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := BootstrapOptions{IncludeRing2: true, Ring2MaxTokens: 10}
+	out := BuildSystemPrompt(root, opts)
+	if !strings.Contains(out, "## USER.md") {
+		t.Error("output should contain USER.md section")
+	}
+	if !strings.Contains(out, "[... truncated]") {
+		t.Error("USER.md should be truncated when over Ring2MaxTokens")
+	}
+}
+
+func TestBuildSystemPrompt_SystemPromptMaxTokens_TruncatesFromEnd(t *testing.T) {
+	root := t.TempDir()
+	// Large core content so total prompt exceeds cap
+	big := string(make([]byte, 8000)) // ~2000 tokens
+	for _, name := range CoreFiles {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(big), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	opts := BootstrapOptions{SystemPromptMaxTokens: 100}
+	out := BuildSystemPrompt(root, opts)
+	estTokens := (utf8.RuneCountInString(out) + charsPerToken - 1) / charsPerToken
+	if estTokens > 120 {
+		t.Errorf("output should be truncated to ~SystemPromptMaxTokens; got est %d tokens", estTokens)
+	}
+	if !strings.Contains(out, "[... system prompt truncated]") {
+		t.Error("output should end with truncation suffix when over cap")
+	}
+}
+
+func TestBuildSystemPrompt_MissingRing2Files_Skipped(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range CoreFiles {
+		if err := os.WriteFile(filepath.Join(root, name), []byte("x"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// No USER.md, MEMORY.md, TASKS.md
+
+	opts := BootstrapOptions{IncludeRing2: true, Ring2MaxTokens: 500}
+	out := BuildSystemPrompt(root, opts)
+	if strings.Contains(out, "## USER.md") || strings.Contains(out, "## MEMORY.md") || strings.Contains(out, "## TASKS.md") {
+		t.Error("missing Ring 2 files should be skipped; output should not contain their headers")
 	}
 }

@@ -86,7 +86,7 @@ func Run(ctx context.Context, cfg config.Server) error {
 		return fmt.Errorf("tools: %w", err)
 	}
 
-	store := session.NewStore(multiProvider, toolRunner, llm.SummarizerFromCompleter(multiProvider), rootDir)
+	store := session.NewStore(multiProvider, toolRunner, llm.SummarizerFromCompleter(multiProvider), rootDir, cfg.Bootstrap)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/models", handleModels(cfg))
 	mux.HandleFunc("/model", handleModel(store, cfg))

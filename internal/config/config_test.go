@@ -95,6 +95,52 @@ func TestServerFromEnv_RootDir_WorkspaceTakesPrecedence(t *testing.T) {
 	}
 }
 
+func TestServerFromEnv_BootstrapDefaults(t *testing.T) {
+	os.Unsetenv("AI_ASSISTANT_BOOTSTRAP_RING2")
+	os.Unsetenv("AI_ASSISTANT_SYSTEM_PROMPT_MAX_TOKENS")
+	os.Unsetenv("AI_ASSISTANT_RING2_MAX_TOKENS")
+
+	cfg := ServerFromEnv()
+
+	if cfg.Bootstrap.IncludeRing2 != true {
+		t.Errorf("Bootstrap.IncludeRing2 default: got %v, want true", cfg.Bootstrap.IncludeRing2)
+	}
+	if cfg.Bootstrap.SystemPromptMaxTokens != DefaultSystemPromptMaxTokens {
+		t.Errorf("Bootstrap.SystemPromptMaxTokens: got %d, want %d", cfg.Bootstrap.SystemPromptMaxTokens, DefaultSystemPromptMaxTokens)
+	}
+	if cfg.Bootstrap.Ring2MaxTokens != DefaultRing2MaxTokens {
+		t.Errorf("Bootstrap.Ring2MaxTokens: got %d, want %d", cfg.Bootstrap.Ring2MaxTokens, DefaultRing2MaxTokens)
+	}
+}
+
+func TestServerFromEnv_BootstrapOverrides(t *testing.T) {
+	t.Setenv("AI_ASSISTANT_BOOTSTRAP_RING2", "true")
+	t.Setenv("AI_ASSISTANT_SYSTEM_PROMPT_MAX_TOKENS", "2048")
+	t.Setenv("AI_ASSISTANT_RING2_MAX_TOKENS", "300")
+
+	cfg := ServerFromEnv()
+
+	if !cfg.Bootstrap.IncludeRing2 {
+		t.Error("Bootstrap.IncludeRing2: want true when AI_ASSISTANT_BOOTSTRAP_RING2=true")
+	}
+	if cfg.Bootstrap.SystemPromptMaxTokens != 2048 {
+		t.Errorf("Bootstrap.SystemPromptMaxTokens: got %d, want 2048", cfg.Bootstrap.SystemPromptMaxTokens)
+	}
+	if cfg.Bootstrap.Ring2MaxTokens != 300 {
+		t.Errorf("Bootstrap.Ring2MaxTokens: got %d, want 300", cfg.Bootstrap.Ring2MaxTokens)
+	}
+}
+
+func TestServerFromEnv_BootstrapRing2Disabled(t *testing.T) {
+	t.Setenv("AI_ASSISTANT_BOOTSTRAP_RING2", "false")
+
+	cfg := ServerFromEnv()
+
+	if cfg.Bootstrap.IncludeRing2 {
+		t.Error("Bootstrap.IncludeRing2: want false when AI_ASSISTANT_BOOTSTRAP_RING2=false")
+	}
+}
+
 func TestREPLFromEnv_Default(t *testing.T) {
 	os.Unsetenv("AI_ASSISTANT_SERVER_ADDR")
 

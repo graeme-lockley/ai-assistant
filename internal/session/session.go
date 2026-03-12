@@ -3,12 +3,16 @@ package session
 import (
 	"fmt"
 	"io"
+	"log"
 	"os"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/graemelockley/ai-assistant/internal/agent"
+	"github.com/graemelockley/ai-assistant/internal/config"
 	"github.com/graemelockley/ai-assistant/internal/llm"
 	"github.com/graemelockley/ai-assistant/internal/tools"
 	"github.com/graemelockley/ai-assistant/internal/workspace"
@@ -22,28 +26,32 @@ type sessionEntry struct {
 }
 
 // Store holds session ID -> agent mapping. Safe for concurrent use.
-// rootDir is the workspace root; used to load SOUL/AGENT/IDENTITY into the system prompt for new sessions.
+// rootDir is the workspace root; used to build the system prompt for new sessions.
+// bootstrapCfg controls Ring 2 and system prompt size caps (workspace-design §8, §9).
 // LogOutput, when non-nil, is used for session lifecycle console messages instead of os.Stderr (for tests).
 type Store struct {
-	mu         sync.RWMutex
-	agents     map[string]*sessionEntry
-	llm        llm.StreamCompleter
-	runner     tools.Runner
-	summarizer llm.Summarizer
-	rootDir    string
-	logOutput  io.Writer
+	mu           sync.RWMutex
+	agents       map[string]*sessionEntry
+	llm          llm.StreamCompleter
+	runner       tools.Runner
+	summarizer   llm.Summarizer
+	rootDir      string
+	bootstrapCfg config.BootstrapConfig
+	logOutput    io.Writer
 }
 
 // NewStore creates a session store that creates agents using the given LLM stream completer.
-// rootDir is the workspace root; agents get workspace core (SOUL, AGENT, IDENTITY) in the system prompt when non-empty.
+// rootDir is the workspace root; agents get workspace core (and optionally Ring 2) in the system prompt when non-empty.
+// bootstrapCfg controls optional Ring 2 (USER, MEMORY, TASKS) and system prompt size caps.
 // If runner is non-nil, agents will have access to tools. If summarizer is non-nil, context compression will summarize dropped turns.
-func NewStore(llmClient llm.StreamCompleter, runner tools.Runner, summarizer llm.Summarizer, rootDir string) *Store {
+func NewStore(llmClient llm.StreamCompleter, runner tools.Runner, summarizer llm.Summarizer, rootDir string, bootstrapCfg config.BootstrapConfig) *Store {
 	return &Store{
-		agents:     make(map[string]*sessionEntry),
-		llm:        llmClient,
-		runner:     runner,
-		summarizer: summarizer,
-		rootDir:    rootDir,
+		agents:       make(map[string]*sessionEntry),
+		llm:          llmClient,
+		runner:       runner,
+		summarizer:   summarizer,
+		rootDir:      rootDir,
+		bootstrapCfg: bootstrapCfg,
 	}
 }
 
@@ -60,11 +68,17 @@ func (s *Store) logOut() io.Writer {
 }
 
 // Create creates a new session and returns its ID and agent. Caller must not use the ID for lookup until after Create returns.
-// If model is non-empty, it sets the initial model for the session. Bootstrap (SOUL, AGENT, IDENTITY) is loaded from rootDir when set.
+// If model is non-empty, it sets the initial model for the session. System prompt is built from rootDir and bootstrapCfg when set.
 func (s *Store) Create(model string) (sessionID string, ag *agent.Agent) {
 	bootstrap := ""
 	if s.rootDir != "" {
-		bootstrap = workspace.LoadBootstrap(s.rootDir)
+		opts := workspace.BootstrapOptions{
+			IncludeRing2:          s.bootstrapCfg.IncludeRing2,
+			Ring2MaxTokens:        s.bootstrapCfg.Ring2MaxTokens,
+			SystemPromptMaxTokens: s.bootstrapCfg.SystemPromptMaxTokens,
+		}
+		bootstrap = workspace.BuildSystemPrompt(s.rootDir, opts)
+		logContextSummary(bootstrap, s.bootstrapCfg.IncludeRing2)
 	}
 	ag = agent.New(s.llm, s.runner, s.summarizer, bootstrap)
 	sessionID = uuid.New().String()
@@ -139,4 +153,26 @@ func (s *Store) Close(sessionID string, reason string) {
 	} else {
 		fmt.Fprintf(out, "%s [session] closed %s\n", ts, sessionID)
 	}
+}
+
+// logContextSummary logs what workspace context was loaded into the system prompt (for debugging and tuning).
+func logContextSummary(bootstrap string, includeRing2 bool) {
+	const charsPerToken = 4
+	runes := utf8.RuneCountInString(bootstrap)
+	estTokens := 0
+	if runes > 0 {
+		estTokens = (runes + charsPerToken - 1) / charsPerToken
+	}
+	var sections []string
+	for _, mark := range []string{"## SOUL.md", "## AGENT.md", "## IDENTITY.md", "## USER.md", "## MEMORY.md", "## TASKS.md"} {
+		if strings.Contains(bootstrap, mark) {
+			sections = append(sections, strings.TrimPrefix(mark, "## "))
+		}
+	}
+	ring2Str := "no"
+	if includeRing2 {
+		ring2Str = "yes"
+	}
+	log.Printf("[context] system prompt: %d runes (~%d tokens); Ring2=%s; sections: %s",
+		runes, estTokens, ring2Str, strings.Join(sections, ","))
 }

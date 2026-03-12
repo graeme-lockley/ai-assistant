@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 )
 
 //go:embed template/*
@@ -132,12 +133,97 @@ func ensureDirs(root string) error {
 // CoreFiles is the Ring 1 core self order (workspace-design §8, §9): SOUL → AGENT → IDENTITY.
 var CoreFiles = []string{"SOUL.md", "AGENT.md", "IDENTITY.md"}
 
-// LoadBootstrap reads the workspace core self (SOUL.md, AGENT.md, IDENTITY.md) from root and returns
-// a system prompt string: minimal prompt (workspace-design §9) plus file contents in order. Missing files are skipped.
-// Used to bootstrap the session so the agent has identity and role context.
-func LoadBootstrap(root string) string {
+// Ring2Files is the Ring 2 supporting context order (workspace-design §8): USER → MEMORY → TASKS.
+var Ring2Files = []string{"USER.md", "MEMORY.md", "TASKS.md"}
+
+// BootstrapOptions controls how the system prompt is built. Zero value means Ring 1 only, no caps.
+type BootstrapOptions struct {
+	IncludeRing2          bool // include USER.md, MEMORY.md, TASKS.md
+	Ring2MaxTokens        int  // per-file token cap for Ring 2; used only when IncludeRing2 is true
+	SystemPromptMaxTokens int  // hard cap for entire system prompt; 0 means no cap
+}
+
+// minimalPrompt is the workspace-design §9 minimal system prompt (priority order and rules).
+const minimalPrompt = `You are an AI agent operating inside a structured workspace.
+
+The workspace defines your identity, behaviour, memory, skills, and tools.
+
+Follow the workspace files in this priority order (earlier has greater gravity in case of conflict):
+
+1. SOUL.md
+2. AGENT.md
+3. IDENTITY.md
+4. USER.md
+5. MEMORY.md
+
+Rules
+
+SOUL.md defines your beliefs, tone, and values.
+AGENT.md defines how you operate in your role.
+IDENTITY.md defines who you are.
+USER.md describes the user.
+MEMORY.md contains distilled long-term knowledge.
+
+Skills and tools may be loaded when required.
+
+Never load raw logs (unless explicitly stated otherwise in the prompt).
+
+Use structured reasoning when solving problems.
+
+Update TASKS.md when necessary.
+
+Remain consistent with your identity and memory.
+
+---
+`
+
+// charsPerToken is a conservative estimate (~4 chars per token for English).
+const charsPerToken = 4
+
+// estimateTokens returns an approximate token count for the string (runes / charsPerToken).
+func estimateTokens(s string) int {
+	n := utf8.RuneCountInString(s)
+	if n <= 0 {
+		return 0
+	}
+	return (n + charsPerToken - 1) / charsPerToken
+}
+
+// truncateToTokens truncates s to at most maxTokens (by runes), appending suffix if truncated.
+func truncateToTokens(s string, maxTokens int, suffix string) string {
+	if maxTokens <= 0 {
+		return ""
+	}
+	maxRunes := maxTokens * charsPerToken
+	r := []rune(s)
+	if len(r) <= maxRunes {
+		return s
+	}
+	return string(r[:maxRunes]) + suffix
+}
+
+// readFileWithCap reads a file under root and truncates content to maxTokens. Returns empty string on error or empty file.
+func readFileWithCap(root, name string, maxTokens int) string {
+	data, err := os.ReadFile(filepath.Join(root, name))
+	if err != nil {
+		return ""
+	}
+	content := strings.TrimSpace(string(data))
+	if content == "" {
+		return ""
+	}
+	if maxTokens > 0 && estimateTokens(content) > maxTokens {
+		content = truncateToTokens(content, maxTokens, "\n\n[... truncated]")
+	}
+	return content
+}
+
+// BuildSystemPrompt reads workspace core (and optionally Ring 2) files and returns the system prompt string.
+// Ring 1 (SOUL, AGENT, IDENTITY) is always included. Ring 2 (USER, MEMORY, TASKS) is included when opts.IncludeRing2 is true,
+// with each file capped at opts.Ring2MaxTokens. The entire prompt is truncated from the end to opts.SystemPromptMaxTokens if set.
+func BuildSystemPrompt(root string, opts BootstrapOptions) string {
 	var b strings.Builder
-	b.WriteString("You are an AI agent operating inside a structured workspace. The workspace defines your identity, behaviour, memory, skills, and tools. Follow the workspace files in this priority order (earlier has greater gravity in conflict): 1. SOUL.md 2. AGENT.md 3. IDENTITY.md 4. USER.md 5. MEMORY.md. SOUL = beliefs, tone, values. AGENT = how you operate. IDENTITY = who you are. USER = the user. MEMORY = distilled long-term knowledge. Use structured reasoning. Update TASKS.md when necessary. Remain consistent with your identity and memory.\n\n---\n\n")
+	b.WriteString(minimalPrompt)
 	for _, name := range CoreFiles {
 		data, err := os.ReadFile(filepath.Join(root, name))
 		if err != nil {
@@ -153,5 +239,30 @@ func LoadBootstrap(root string) string {
 		b.WriteString(content)
 		b.WriteString("\n\n")
 	}
-	return strings.TrimSuffix(b.String(), "\n\n")
+	if opts.IncludeRing2 && opts.Ring2MaxTokens > 0 {
+		for _, name := range Ring2Files {
+			content := readFileWithCap(root, name, opts.Ring2MaxTokens)
+			if content == "" {
+				continue
+			}
+			b.WriteString("## ")
+			b.WriteString(name)
+			b.WriteString("\n\n")
+			b.WriteString(content)
+			b.WriteString("\n\n")
+		}
+	}
+	out := strings.TrimSuffix(b.String(), "\n\n")
+	if opts.SystemPromptMaxTokens > 0 && estimateTokens(out) > opts.SystemPromptMaxTokens {
+		out = truncateToTokens(out, opts.SystemPromptMaxTokens, "\n\n[... system prompt truncated]")
+	}
+	return out
+}
+
+// LoadBootstrap reads the workspace core self (SOUL.md, AGENT.md, IDENTITY.md) from root and returns
+// a system prompt string: minimal prompt (workspace-design §9) plus file contents in order. Missing files are skipped.
+// Used to bootstrap the session so the agent has identity and role context.
+// Equivalent to BuildSystemPrompt(root, BootstrapOptions{}).
+func LoadBootstrap(root string) string {
+	return BuildSystemPrompt(root, BootstrapOptions{})
 }

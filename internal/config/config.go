@@ -8,12 +8,14 @@ import (
 )
 
 const (
-	DefaultBindAddr       = ":8080"
-	DefaultServerAddr     = "127.0.0.1:8080"
-	DefaultDeepseekURL    = "https://api.deepseek.com"
-	DefaultDeepseekModel  = "deepseek-chat"
-	DefaultAnthropicModel = "claude-3-5-sonnet-20241022"
-	DefaultHistoryMax     = 1000
+	DefaultBindAddr               = ":8080"
+	DefaultServerAddr             = "127.0.0.1:8080"
+	DefaultDeepseekURL            = "https://api.deepseek.com"
+	DefaultDeepseekModel          = "deepseek-chat"
+	DefaultAnthropicModel         = "claude-3-5-sonnet-20241022"
+	DefaultHistoryMax             = 1000
+	DefaultSystemPromptMaxTokens  = 4096
+	DefaultRing2MaxTokens         = 500
 )
 
 // ModelInfo contains information about a model.
@@ -55,6 +57,14 @@ type SearchConfig struct {
 	TavilyAPIKey string // required for web_search; set from TAVILY_API_KEY
 }
 
+// BootstrapConfig controls workspace system prompt assembly (workspace-design §8, §9).
+// Ring 1 (SOUL, AGENT, IDENTITY) is always included. Ring 2 (USER, MEMORY, TASKS) is included by default so the assistant knows the user; set IncludeRing2 false to disable.
+type BootstrapConfig struct {
+	IncludeRing2         bool // include USER.md, MEMORY.md, TASKS.md (default true so assistant knows the user)
+	Ring2MaxTokens       int  // per-file token cap for Ring 2 files; used only when IncludeRing2 is true
+	SystemPromptMaxTokens int // hard cap for entire system prompt; 0 means no cap
+}
+
 // Server holds configuration for the server personality.
 // RootDir is the workspace root; file tools and workspace layout use this path.
 type Server struct {
@@ -64,9 +74,10 @@ type Server struct {
 	DeepseekModel       string
 	AnthropicAPIKey     string
 	DefaultResponseType string
-	RootDir             string // workspace root; set from AI_ASSISTANT_WORKSPACE, else AI_ASSISTANT_ROOT_DIR, else ~/.ai-assistant.workspace
+	RootDir             string         // workspace root; set from AI_ASSISTANT_WORKSPACE, else AI_ASSISTANT_ROOT_DIR, else ~/.ai-assistant.workspace
 	SearchProvider      SearchProvider
-	TavilyAPIKey        string // for web_search; set from TAVILY_API_KEY
+	TavilyAPIKey        string         // for web_search; set from TAVILY_API_KEY
+	Bootstrap           BootstrapConfig // workspace system prompt (Ring 1 + optional Ring 2)
 }
 
 // REPL holds configuration for the REPL client.
@@ -112,8 +123,35 @@ func ServerFromEnv() Server {
 		RootDir:             strings.TrimSpace(rootDir),
 		SearchProvider:      searchProvider,
 		TavilyAPIKey:        os.Getenv("TAVILY_API_KEY"),
+		Bootstrap:           bootstrapFromEnv(),
 	}
 	return s
+}
+
+// bootstrapFromEnv loads BootstrapConfig from environment variables.
+// Ring 2 (USER, MEMORY, TASKS) is on by default so the assistant knows the user; set AI_ASSISTANT_BOOTSTRAP_RING2=false to disable.
+func bootstrapFromEnv() BootstrapConfig {
+	includeRing2 := true
+	if s := strings.TrimSpace(strings.ToLower(os.Getenv("AI_ASSISTANT_BOOTSTRAP_RING2"))); s == "false" || s == "0" || s == "no" {
+		includeRing2 = false
+	}
+	systemPromptMax := DefaultSystemPromptMaxTokens
+	if s := os.Getenv("AI_ASSISTANT_SYSTEM_PROMPT_MAX_TOKENS"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n >= 0 {
+			systemPromptMax = n
+		}
+	}
+	ring2Max := DefaultRing2MaxTokens
+	if s := os.Getenv("AI_ASSISTANT_RING2_MAX_TOKENS"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			ring2Max = n
+		}
+	}
+	return BootstrapConfig{
+		IncludeRing2:          includeRing2,
+		Ring2MaxTokens:        ring2Max,
+		SystemPromptMaxTokens: systemPromptMax,
+	}
 }
 
 // REPLFromEnv loads REPL config from environment variables.
