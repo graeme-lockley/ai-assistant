@@ -12,7 +12,7 @@ const (
 	DefaultServerAddr             = "127.0.0.1:8080"
 	DefaultDeepseekURL            = "https://api.deepseek.com"
 	DefaultDeepseekModel          = "deepseek-chat"
-	DefaultAnthropicModel         = "claude-3-5-sonnet-20241022"
+	DefaultAnthropicModel         = "claude-sonnet-4-6"
 	DefaultHistoryMax             = 1000
 	DefaultSystemPromptMaxTokens  = 4096
 	DefaultRing2MaxTokens         = 500
@@ -25,14 +25,14 @@ type ModelInfo struct {
 }
 
 // KnownModels returns all known models with their provider info.
+// Only includes model IDs that are currently accepted by the APIs (deprecated IDs removed to avoid 404s).
 func KnownModels() []ModelInfo {
 	return []ModelInfo{
 		{Name: "deepseek-chat", Provider: "deepseek"},
 		{Name: "deepseek-reasoner", Provider: "deepseek"},
-		{Name: "claude-3-5-sonnet-20241022", Provider: "anthropic"},
-		{Name: "claude-3-5-haiku-20241022", Provider: "anthropic"},
-		{Name: "claude-3-opus-20240229", Provider: "anthropic"},
-		{Name: "claude-3-haiku-20240307", Provider: "anthropic"},
+		{Name: "claude-sonnet-4-6", Provider: "anthropic"},
+		{Name: "claude-opus-4-6", Provider: "anthropic"},
+		{Name: "claude-haiku-4-5-20251001", Provider: "anthropic"},
 	}
 }
 

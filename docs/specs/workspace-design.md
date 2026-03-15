@@ -207,6 +207,14 @@ Logs are:
 - never loaded into prompts (unless explicitly stated otherwise in the prompt)
 - used only for summarisation and offline consolidation
 
+Implementation notes:
+
+- Files are stored under `logs/` as `YYYY-MM-DD-<session-id>.md` (date in UTC).
+- Each completed turn appends a markdown fragment containing the user message and assistant reply.
+- Each fragment is preceded by an HTML comment with session metadata, for example:
+
+  `<!-- session: <session-id> | turn: N | 2026-03-13T10:00:00Z -->`
+
 ---
 
 ## memory/

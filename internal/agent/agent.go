@@ -17,6 +17,9 @@ type Agent struct {
 	summarizer llm.Summarizer
 	bootstrap  string       // workspace core (SOUL, AGENT, IDENTITY) for system prompt
 	history    []llm.Message
+	// turnLogger, when non-nil, is called after each successful turn with the
+	// user message and full assistant reply so callers can persist a session log.
+	turnLogger func(userMsg, assistantReply string)
 }
 
 // New creates an agent that uses the given LLM stream completer.
@@ -33,11 +36,18 @@ func New(llmClient llm.StreamCompleter, runner tools.Runner, summarizer llm.Summ
 	}
 }
 
+// SetTurnLogger sets the optional callback that is invoked after each
+// successful turn with the user message and full assistant reply.
+func (a *Agent) SetTurnLogger(fn func(userMsg, assistantReply string)) {
+	a.turnLogger = fn
+}
+
 // RespondStream appends the user message to history, streams the assistant reply via sendThinking (reasoning)
 // and sendChunk (main content), then appends the full reply to history. When a tool runner is set, runs
 // requested tools and continues until the LLM returns a final reply. model is an optional override; if empty,
 // the LLM uses its default. History is compressed to stay within context limits before each LLM call.
-func (a *Agent) RespondStream(ctx context.Context, userMessage string, sendThinking, sendChunk func(delta string) error, model string) error {
+// onToolStart is optional; when non-nil it is called before each tool run so the client can show progress (e.g. "[Searching...]").
+func (a *Agent) RespondStream(ctx context.Context, userMessage string, sendThinking, sendChunk func(delta string) error, model string, onToolStart func(toolName string) error) error {
 	a.history = append(a.history, llm.Message{
 		Role:    "user",
 		Content: userMessage,
@@ -65,8 +75,11 @@ func (a *Agent) RespondStream(ctx context.Context, userMessage string, sendThink
 
 	if a.runner != nil {
 		if withTools, ok := a.llm.(llm.StreamCompleterWithTools); ok {
-			if err := a.respondStreamWithTools(ctx, withTools, sendThinking, sendDelta, model); err != nil {
+			if err := a.respondStreamWithTools(ctx, withTools, sendThinking, sendDelta, model, onToolStart); err != nil {
 				return err
+			}
+			if a.turnLogger != nil {
+				a.turnLogger(userMessage, fullReply.String())
 			}
 			// Keep history bounded after turn (tool results may have been appended).
 			if a.summarizer != nil {
@@ -91,6 +104,9 @@ func (a *Agent) RespondStream(ctx context.Context, userMessage string, sendThink
 		Role:    "assistant",
 		Content: fullReply.String(),
 	})
+	if a.turnLogger != nil {
+		a.turnLogger(userMessage, fullReply.String())
+	}
 	if a.summarizer != nil {
 		compressed, err := llm.CompressMessagesWithSummarizer(ctx, a.history, llm.DefaultMaxContextTokens, a.summarizer)
 		if err != nil {
@@ -107,8 +123,8 @@ func (a *Agent) RespondStream(ctx context.Context, userMessage string, sendThink
 
 // respondStreamWithTools runs the tool loop: call LLM with tools, stream deltas; if tool calls returned, run them and repeat.
 // Assistant messages are appended with ReasoningContent and Content from the result so deepseek-reasoner receives
-// reasoning_content on the next request.
-func (a *Agent) respondStreamWithTools(ctx context.Context, withTools llm.StreamCompleterWithTools, sendThinking, sendDelta func(delta string) error, model string) error {
+// reasoning_content on the next request. onToolStart is optional and called before each tool run.
+func (a *Agent) respondStreamWithTools(ctx context.Context, withTools llm.StreamCompleterWithTools, sendThinking, sendDelta func(delta string) error, model string, onToolStart func(toolName string) error) error {
 	for {
 		res, err := withTools.CompleteStreamWithTools(ctx, a.history, sendThinking, sendDelta, model, a.bootstrap)
 		if err != nil {
@@ -129,6 +145,11 @@ func (a *Agent) respondStreamWithTools(ctx context.Context, withTools llm.Stream
 		}
 		// Run each tool and append tool result messages (truncated to avoid context explosion).
 		for _, tc := range res.ToolCalls {
+			if onToolStart != nil {
+				if err := onToolStart(tc.Name); err != nil {
+					return fmt.Errorf("agent tool progress: %w", err)
+				}
+			}
 			toolLogTrunc := 200
 			log.Printf("[tool] call id=%s name=%s args=%s", tc.ID, tc.Name, truncate(tc.Arguments, toolLogTrunc))
 			toolResult, runErr := a.runner.Run(ctx, tc.Name, tc.Arguments)

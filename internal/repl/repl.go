@@ -337,6 +337,14 @@ func consumeSSE(r io.Reader, out *bufio.Writer, onSession func(sessionID string)
 						_, _ = out.WriteString(v.Delta)
 						_ = out.Flush()
 					}
+				case protocol.EventTool:
+					var v struct {
+						Name string `json:"name"`
+					}
+					if json.Unmarshal([]byte(dataStr), &v) == nil && v.Name != "" {
+						msg := toolProgressMessage(v.Name)
+						fmt.Fprintf(os.Stderr, "%s\n", msg)
+					}
 				case protocol.EventThinking:
 					var v struct {
 						Delta string `json:"delta"`
@@ -374,6 +382,16 @@ func consumeSSE(r io.Reader, out *bufio.Writer, onSession func(sessionID string)
 	return scanner.Err()
 }
 
+// toolProgressMessage returns a short user-facing message when a tool starts (so the REPL isn't silent).
+func toolProgressMessage(toolName string) string {
+	switch toolName {
+	case "web_search":
+		return "[Searching the web...]"
+	default:
+		return "[Running " + toolName + "...]"
+	}
+}
+
 // consumeNDJSON reads NDJSON lines from r and prints token deltas to out, flushing after each
 // so streamed output appears immediately. Thinking/reasoning tokens are printed in light grey (ANSI).
 // Calls onSession with session_id from session events.
@@ -395,6 +413,11 @@ func consumeNDJSON(r io.Reader, out *bufio.Writer, onSession func(sessionID stri
 		case protocol.EventToken:
 			_, _ = out.WriteString(ev.Delta)
 			_ = out.Flush()
+		case protocol.EventTool:
+			if ev.ToolName != "" {
+				msg := toolProgressMessage(ev.ToolName)
+				fmt.Fprintf(os.Stderr, "%s\n", msg)
+			}
 		case protocol.EventThinking:
 			_, _ = out.WriteString(ansiLightGrey)
 			_, _ = out.WriteString(ev.Delta)

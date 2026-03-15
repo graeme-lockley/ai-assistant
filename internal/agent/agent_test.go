@@ -37,7 +37,7 @@ func TestAgent_RespondStream_SendsChunksAndAppendsToHistory(t *testing.T) {
 		chunks = append(chunks, delta)
 		return nil
 	}
-	err := ag.RespondStream(context.Background(), "user message", nil, sendChunk, "")
+	err := ag.RespondStream(context.Background(), "user message", nil, sendChunk, "", nil)
 	if err != nil {
 		t.Fatalf("RespondStream: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestAgent_RespondStream_SendsChunksAndAppendsToHistory(t *testing.T) {
 
 	// Second call should include previous exchange in history (mock receives it)
 	chunks = nil
-	err = ag.RespondStream(context.Background(), "follow-up", nil, sendChunk, "")
+	err = ag.RespondStream(context.Background(), "follow-up", nil, sendChunk, "", nil)
 	if err != nil {
 		t.Fatalf("RespondStream (second): %v", err)
 	}
@@ -61,7 +61,7 @@ func TestAgent_RespondStream_PropagatesLLMError(t *testing.T) {
 	mock := &mockStreamCompleter{err: wantErr}
 	ag := New(mock, nil, nil, "")
 
-	err := ag.RespondStream(context.Background(), "hello", nil, func(string) error { return nil }, "")
+	err := ag.RespondStream(context.Background(), "hello", nil, func(string) error { return nil }, "", nil)
 	if err == nil {
 		t.Fatal("expected error from RespondStream")
 	}
@@ -80,11 +80,39 @@ func TestAgent_RespondStream_EmptyMessage(t *testing.T) {
 	err := ag.RespondStream(context.Background(), "", nil, func(delta string) error {
 		chunks = append(chunks, delta)
 		return nil
-	}, "")
+	}, "", nil)
 	if err != nil {
 		t.Fatalf("RespondStream: %v", err)
 	}
 	if got := strings.Join(chunks, ""); got != "ok" {
 		t.Errorf("got %q, want ok", got)
+	}
+}
+
+func TestAgent_RespondStream_CallsTurnLogger(t *testing.T) {
+	reply := "Hello from the assistant"
+	mock := &mockStreamCompleter{reply: reply}
+	ag := New(mock, nil, nil, "")
+
+	var gotUser, gotAssistant string
+	var called int
+	ag.SetTurnLogger(func(userMsg, assistantReply string) {
+		called++
+		gotUser = userMsg
+		gotAssistant = assistantReply
+	})
+
+	err := ag.RespondStream(context.Background(), "user message", nil, func(string) error { return nil }, "", nil)
+	if err != nil {
+		t.Fatalf("RespondStream: %v", err)
+	}
+	if called != 1 {
+		t.Fatalf("turnLogger called %d times, want 1", called)
+	}
+	if gotUser != "user message" {
+		t.Errorf("turnLogger userMsg = %q, want %q", gotUser, "user message")
+	}
+	if gotAssistant != reply {
+		t.Errorf("turnLogger assistantReply = %q, want %q", gotAssistant, reply)
 	}
 }

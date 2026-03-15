@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/graemelockley/ai-assistant/internal/agent"
 	"github.com/graemelockley/ai-assistant/internal/config"
 	"github.com/graemelockley/ai-assistant/internal/llm"
+	"github.com/graemelockley/ai-assistant/internal/sessionlog"
 	"github.com/graemelockley/ai-assistant/internal/tools"
 	"github.com/graemelockley/ai-assistant/internal/workspace"
 )
@@ -82,6 +84,22 @@ func (s *Store) Create(model string) (sessionID string, ag *agent.Agent) {
 	}
 	ag = agent.New(s.llm, s.runner, s.summarizer, bootstrap)
 	sessionID = uuid.New().String()
+	if s.rootDir != "" {
+		logsDir := filepath.Join(s.rootDir, "logs")
+		sid := sessionID
+		var turnMu sync.Mutex
+		var turnIndex int
+		ag.SetTurnLogger(func(userMsg, assistantReply string) {
+			turnMu.Lock()
+			turnIndex++
+			idx := turnIndex
+			turnMu.Unlock()
+			ts := time.Now()
+			if err := sessionlog.AppendTurn(logsDir, sid, userMsg, assistantReply, idx, ts); err != nil {
+				log.Printf("[session] log write failed: %v", err)
+			}
+		})
+	}
 	now := time.Now()
 	s.mu.Lock()
 	s.agents[sessionID] = &sessionEntry{agent: ag, createdAt: now, model: model}

@@ -217,7 +217,16 @@ func handleChat(store *session.Store, cfg config.Server) http.HandlerFunc {
 				}
 				return nil
 			}
-			if err := ag.RespondStream(r.Context(), message, sendThinking, sendChunk, model); err != nil {
+			onToolStart := func(toolName string) error {
+				if err := sw.WriteEvent(protocol.EventTool, map[string]string{"name": toolName}); err != nil {
+					return err
+				}
+				if flusher != nil {
+					flusher.Flush()
+				}
+				return nil
+			}
+			if err := ag.RespondStream(r.Context(), message, sendThinking, sendChunk, model, onToolStart); err != nil {
 				_ = sw.WriteEvent(protocol.EventError, map[string]string{"error": err.Error()})
 				if flusher != nil {
 					flusher.Flush()
@@ -258,7 +267,16 @@ func handleChat(store *session.Store, cfg config.Server) http.HandlerFunc {
 			}
 			return nil
 		}
-		if err := ag.RespondStream(r.Context(), message, sendThinking, sendChunk, model); err != nil {
+		onToolStart := func(toolName string) error {
+			if err := nw.WriteLine(protocol.StreamEvent{Type: protocol.EventTool, ToolName: toolName}); err != nil {
+				return err
+			}
+			if flusher != nil {
+				flusher.Flush()
+			}
+			return nil
+		}
+		if err := ag.RespondStream(r.Context(), message, sendThinking, sendChunk, model, onToolStart); err != nil {
 			_ = nw.WriteLine(protocol.StreamEvent{Type: protocol.EventError, Error: err.Error()})
 			if flusher != nil {
 				flusher.Flush()

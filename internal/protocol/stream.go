@@ -23,6 +23,7 @@ const (
 	EventSession  = "session"
 	EventToken    = "token"
 	EventThinking = "thinking"
+	EventTool      = "tool"
 	EventDone     = "done"
 	EventError    = "error"
 )
@@ -77,8 +78,9 @@ func (n *NDJSONWriter) WriteLine(obj interface{}) error {
 
 // StreamEvent represents a single stream event for NDJSON.
 type StreamEvent struct {
-	Type      string `json:"type"` // "session", "token", "done", "error"
+	Type      string `json:"type"` // "session", "token", "thinking", "tool", "done", "error"
 	SessionID string `json:"session_id,omitempty"`
 	Delta     string `json:"delta,omitempty"`
 	Error     string `json:"error,omitempty"`
+	ToolName  string `json:"tool_name,omitempty"` // for type "tool": which tool is running
 }

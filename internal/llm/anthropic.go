@@ -50,11 +50,13 @@ type anthropicMessage struct {
 }
 
 type anthropicContentBlock struct {
-	Type      string `json:"type,omitempty"`
-	Text      string `json:"text,omitempty"`
-	Name      string `json:"name,omitempty"`
-	Input     string `json:"input,omitempty"`
-	ToolUseID string `json:"tool_use_id,omitempty"`
+	Type      string      `json:"type,omitempty"`
+	Text      string      `json:"text"`                   // text block (required when type is text; do not omit when empty)
+	Content   string      `json:"content,omitempty"`      // tool_result body (API expects "content", not "text")
+	Name      string      `json:"name,omitempty"`
+	ID        string      `json:"id,omitempty"`             // tool_use block id (required when type is tool_use)
+	Input     interface{} `json:"input,omitempty"`           // tool_use input as object
+	ToolUseID string      `json:"tool_use_id,omitempty"`    // tool_result block
 }
 
 type anthropicTool struct {
@@ -196,7 +198,10 @@ func (c *AnthropicClient) CompleteStreamWithTools(ctx context.Context, messages 
 
 	reader := bufio.NewReader(resp.Body)
 	var contentBuf strings.Builder
-	var toolCalls []ToolCall
+	// Anthropic streams tool_use via content_block_start (with content_block.type "tool_use") and
+	// content_block_delta (with delta.type "input_json_delta", partial_json). Index is the content block index.
+	var toolCallsByIndex = make(map[int]*ToolCall)
+	var toolCallsOrder []int
 
 	for {
 		line, err := reader.ReadString('\n')
@@ -220,10 +225,30 @@ func (c *AnthropicClient) CompleteStreamWithTools(ctx context.Context, messages 
 				continue
 			}
 
-			if eventType, ok := event["type"].(string); ok {
-				switch eventType {
-				case "content_block_delta":
-					if delta, ok := event["delta"].(map[string]any); ok {
+			eventType, _ := event["type"].(string)
+			switch eventType {
+			case "content_block_start":
+				if block, ok := event["content_block"].(map[string]any); ok {
+					if blockType, _ := block["type"].(string); blockType == "tool_use" {
+						idx, _ := event["index"].(float64)
+						tc := &ToolCall{}
+						if id, ok := block["id"].(string); ok {
+							tc.ID = id
+						}
+						if name, ok := block["name"].(string); ok {
+							tc.Name = name
+						}
+						i := int(idx)
+						toolCallsByIndex[i] = tc
+						toolCallsOrder = append(toolCallsOrder, i)
+					}
+				}
+			case "content_block_delta":
+				idx, _ := event["index"].(float64)
+				if delta, ok := event["delta"].(map[string]any); ok {
+					deltaType, _ := delta["type"].(string)
+					switch deltaType {
+					case "text_delta":
 						if text, ok := delta["text"].(string); ok && text != "" {
 							contentBuf.WriteString(text)
 							if sendDelta != nil {
@@ -232,41 +257,42 @@ func (c *AnthropicClient) CompleteStreamWithTools(ctx context.Context, messages 
 								}
 							}
 						}
-					}
-				case "tool_use":
-					if toolUse, ok := event["tool_use"].(map[string]any); ok {
-						tc := ToolCall{}
-						if id, ok := toolUse["id"].(string); ok {
-							tc.ID = id
-						}
-						if name, ok := toolUse["name"].(string); ok {
-							tc.Name = name
-						}
-						toolCalls = append(toolCalls, tc)
-					}
-				case "tool_use_input":
-					if idx, ok := event["index"].(float64); ok {
-						input, _ := event["input"].(map[string]any)
-						inputJSON, _ := json.Marshal(input)
-						if idx < float64(len(toolCalls)) {
-							toolCalls[int(idx)].Arguments = string(inputJSON)
+					case "input_json_delta":
+						if partial, ok := delta["partial_json"].(string); ok {
+							if tc := toolCallsByIndex[int(idx)]; tc != nil {
+								tc.Arguments += partial
+							}
 						}
 					}
-				case "message_stop":
-					if len(toolCalls) > 0 {
-						return &StreamWithToolsResult{
-							ToolCalls: toolCalls,
-							Content:   contentBuf.String(),
-						}, nil
+				}
+			case "message_stop":
+				// Build result in content block order
+				var toolCalls []ToolCall
+				for _, i := range toolCallsOrder {
+					if tc := toolCallsByIndex[i]; tc != nil {
+						toolCalls = append(toolCalls, *tc)
 					}
+				}
+				if len(toolCalls) > 0 {
 					return &StreamWithToolsResult{
-						Content: contentBuf.String(),
+						ToolCalls: toolCalls,
+						Content:   contentBuf.String(),
 					}, nil
 				}
+				return &StreamWithToolsResult{
+					Content: contentBuf.String(),
+				}, nil
 			}
 		}
 	}
 
+	// EOF: build result if we have tool calls
+	var toolCalls []ToolCall
+	for _, i := range toolCallsOrder {
+		if tc := toolCallsByIndex[i]; tc != nil {
+			toolCalls = append(toolCalls, *tc)
+		}
+	}
 	if len(toolCalls) > 0 {
 		return &StreamWithToolsResult{
 			ToolCalls: toolCalls,
@@ -296,22 +322,28 @@ func convertMessagesToAnthropic(messages []Message) []anthropicMessage {
 			Text: m.Content,
 		}}
 
-		// Handle tool calls
+		// Handle tool calls (assistant message with tool_use blocks: id, name, input required by API)
 		if m.Role == "assistant" && len(m.ToolCalls) > 0 {
 			for _, tc := range m.ToolCalls {
+				var inputObj interface{}
+				if tc.Arguments != "" {
+					_ = json.Unmarshal([]byte(tc.Arguments), &inputObj)
+				}
 				content = append(content, anthropicContentBlock{
-					Type: "tool_use",
-					Name: tc.Name,
+					Type:  "tool_use",
+					ID:    tc.ID,
+					Name:  tc.Name,
+					Input: inputObj,
 				})
 			}
 		}
 
-		// Handle tool results
+		// Handle tool results (API expects "content" for the result body, not "text")
 		if m.Role == "tool" {
 			content = []anthropicContentBlock{{
 				Type:      "tool_result",
 				ToolUseID: m.ToolCallID,
-				Text:      m.Content,
+				Content:   m.Content,
 			}}
 		}
 
