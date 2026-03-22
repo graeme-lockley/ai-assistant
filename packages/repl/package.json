@@ -1,0 +1,22 @@
+{
+  "name": "@ai-assistant/repl",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "ai-assistant-repl": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@ai-assistant/core": "*",
+    "@mariozechner/pi-tui": "^0.61.1",
+    "commander": "^12.1.0",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2"
+  }
+}

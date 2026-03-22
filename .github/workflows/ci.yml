@@ -12,17 +12,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          go-version: '1.22'
-          cache: true
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Build
-        run: go build -o ai-assistant ./cmd/ai-assistant
+        run: npm run build
 
       - name: Run tests
-        run: go test ./...
-
-      - name: Check for issues
-        run: go vet ./...
+        run: npm test

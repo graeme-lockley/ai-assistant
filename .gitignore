@@ -1,5 +1,15 @@
-# Built binary (from: go build -o ai-assistant ./cmd/ai-assistant)
+# Built binary (legacy Go)
 /ai-assistant
+
+# Node / TypeScript
+node_modules/
+dist/
+*.tsbuildinfo
+# Accidental tsc output next to sources
+packages/**/src/**/*.js
+packages/**/src/**/*.js.map
+packages/**/src/**/*.d.ts
+packages/**/src/**/*.d.ts.map
 
 # Go
 /vendor/

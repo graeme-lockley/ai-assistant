@@ -1,26 +1,17 @@
-# Specs
-
-Specification documents for the AI Assistant project.
-
-## Start here
-
-- **[vision.md](vision.md)** — High-level vision, in-scope and out-of-scope features.
-
-## Workspace (agent workspace and context)
+# Specifications
 
 | Document | Description |
 |----------|-------------|
-| [workspace-design.md](workspace-design.md) | Unified AI agent workspace architecture: identity, memory, capabilities, logs, context rings, evolution over time. |
-| [context-loader-spec.md](context-loader-spec.md) | Context Loader: assemble minimum working context per request; fragment model, retrieval, ranking, selection; keeps agent relevant as workspace grows. |
+| [vision.md](vision.md) | Product scope |
+| [requirements-architecture.md](requirements-architecture.md) | Monorepo and components |
+| [workspace-design.md](workspace-design.md) | On-disk layout, rings, memory vs sessions |
+| [agent-definition-spec.md](agent-definition-spec.md) | `agents/<name>/AGENT.md` format |
+| [requirements-server.md](requirements-server.md) | HTTP server (Hono) |
+| [requirements-protocol.md](requirements-protocol.md) | SSE/NDJSON, sessions |
+| [requirements-config.md](requirements-config.md) | Environment variables |
+| [requirements-repl.md](requirements-repl.md) | pi-tui REPL client |
+| [requirements-ask.md](requirements-ask.md) | Ask CLI |
+| [requirements-consolidate.md](requirements-consolidate.md) | Overnight memory consolidation |
+| [context-loader-spec.md](context-loader-spec.md) | Fragments and indexer (legacy loader design; partial implementation) |
 
-## Requirements
-
-| Document | Description |
-|----------|-------------|
-| [requirements-architecture.md](requirements-architecture.md) | Components and data flow (main, config, protocol, llm, agent, server, repl, ask). |
-| [requirements-server.md](requirements-server.md) | Server personality: TCP listen, one agent per connection, lifecycle. |
-| [requirements-repl.md](requirements-repl.md) | REPL personality: connect, read/send/receive/print loop, exit behavior. |
-| [requirements-ask.md](requirements-ask.md) | Ask command: single-shot client, session per request, JSON output. |
-| [requirements-protocol.md](requirements-protocol.md) | Wire format: TCP, length-prefixed JSON frames, request/response/error shapes. |
-| [requirements-deepseek.md](requirements-deepseek.md) | Deepseek integration: API key, base URL, model; streaming; multi-provider with Anthropic. |
-| [requirements-config.md](requirements-config.md) | Configuration: env vars, defaults, server vs REPL. |
+`requirements-deepseek.md` was removed; provider details are covered by pi-ai configuration.

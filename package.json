@@ -1,0 +1,23 @@
+{
+  "name": "ai-assistant",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @ai-assistant/core && npm run build -w @ai-assistant/server -w @ai-assistant/repl -w @ai-assistant/ask -w @ai-assistant/consolidate",
+    "test": "vitest run",
+    "server": "npm run start -w @ai-assistant/server",
+    "repl": "npm run start -w @ai-assistant/repl",
+    "ask": "npm run start -w @ai-assistant/ask",
+    "consolidate": "npm run start -w @ai-assistant/consolidate"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vitest": "^3.0.0"
+  }
+}
