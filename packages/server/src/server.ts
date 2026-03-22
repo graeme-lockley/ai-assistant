@@ -5,6 +5,9 @@ import {
   ensureWorkspace,
   HeaderSessionClose,
   HeaderSessionID,
+  HeaderStreamFormat,
+  StreamFormatNDJSON,
+  StreamFormatSSE,
   loadServerConfig,
   NDJSONWriter,
   parseChatRequestBody,
@@ -32,17 +35,77 @@ function assistantTextFromMessage(m: AgentMessage): string {
   }
   const parts: string[] = [];
   for (const block of c) {
-    if (
-      typeof block === "object" &&
-      block !== null &&
-      "type" in block &&
-      block.type === "text" &&
-      "text" in block
-    ) {
-      parts.push(String((block as { text: string }).text));
+    if (typeof block !== "object" || block === null || !("type" in block)) {
+      continue;
+    }
+    if (block.type === "text" && "text" in block) {
+      const t = (block as { text?: string }).text;
+      if (typeof t === "string" && t.length > 0) {
+        parts.push(t);
+      }
+    } else if (block.type === "thinking" && "thinking" in block) {
+      const t = (block as { thinking?: string }).thinking;
+      if (typeof t === "string" && t.length > 0) {
+        parts.push(t);
+      }
     }
   }
   return parts.join("");
+}
+
+/** Last assistant message that has visible text (skips tool-only assistant stubs). */
+function lastAssistantPlainText(messages: AgentMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role !== "assistant") {
+      continue;
+    }
+    const raw = assistantTextFromMessage(m);
+    if (raw.trim().length > 0) {
+      return raw;
+    }
+  }
+  return "";
+}
+
+function explainEmptyAssistantReply(ent: {
+  state: { error?: string; messages: AgentMessage[] };
+}): string {
+  const st = ent.state;
+  if (st.error) {
+    return `[error] ${st.error}`;
+  }
+  for (let i = st.messages.length - 1; i >= 0; i--) {
+    const m = st.messages[i];
+    if (m.role === "assistant" && "errorMessage" in m) {
+      const em = (m as { errorMessage?: string }).errorMessage;
+      if (em) {
+        return `[error] ${em}`;
+      }
+    }
+    if (m.role === "toolResult") {
+      const tr = m as { isError?: boolean; content?: unknown };
+      if (tr.isError && Array.isArray(tr.content)) {
+        const txt = tr.content
+          .map((b) =>
+            typeof b === "object" && b !== null && "text" in b
+              ? String((b as { text: string }).text)
+              : "",
+          )
+          .join(" ")
+          .trim();
+        if (txt) {
+          return `[tool error] ${txt.slice(0, 2000)}`;
+        }
+      }
+    }
+  }
+  const lastAsst = [...st.messages].reverse().find((x) => x.role === "assistant");
+  if (lastAsst) {
+    const snippet = JSON.stringify(lastAsst.content).slice(0, 400);
+    return `[no visible text] Last assistant blocks: ${snippet}${snippet.length >= 400 ? "…" : ""}`;
+  }
+  return "[no assistant message in context]";
 }
 
 export function createApp(): Hono {
@@ -182,12 +245,20 @@ export function createApp(): Hono {
       }
     }
 
-    const accept =
-      c.req.header("Accept")?.toLowerCase() || cfg.defaultResponseType;
-    const useSSE = accept.includes("event-stream");
-    const useNdjson =
-      accept.includes("application/json") && !useSSE;
-    const streamFormat = useNdjson ? "ndjson" : "sse";
+    const fmtHdr = c.req.header(HeaderStreamFormat)?.trim().toLowerCase();
+    let streamFormat: "ndjson" | "sse";
+    if (fmtHdr === StreamFormatNDJSON) {
+      streamFormat = "ndjson";
+    } else if (fmtHdr === StreamFormatSSE) {
+      streamFormat = "sse";
+    } else {
+      const accept =
+        c.req.header("Accept")?.toLowerCase() || cfg.defaultResponseType;
+      const useSSE = accept.includes("event-stream");
+      const useNdjson =
+        accept.includes("application/json") && !useSSE;
+      streamFormat = useNdjson ? "ndjson" : "sse";
+    }
 
     const headers: Record<string, string> = {
       [HeaderSessionID]: sessionId,
@@ -206,10 +277,23 @@ export function createApp(): Hono {
       return c.text("message required", 400);
     }
 
-    const { readable, writable } = new TransformStream<Uint8Array>();
-    const writer = writable.getWriter();
     const enc = new TextEncoder();
-    const writeStr = (s: string) => writer.write(enc.encode(s));
+    let streamCtl: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const readable = new ReadableStream<Uint8Array>({
+      start(controller) {
+        streamCtl = controller;
+      },
+    });
+    const writeStr = (s: string) => {
+      if (!streamCtl) {
+        return;
+      }
+      try {
+        streamCtl.enqueue(enc.encode(s));
+      } catch {
+        /* closed */
+      }
+    };
 
     const sse = new SSEWriter({ write: writeStr });
     const ndj = new NDJSONWriter({ write: writeStr });
@@ -229,15 +313,38 @@ export function createApp(): Hono {
         }
 
         let fullReply = "";
+        /** Text already sent to the client as `token` deltas (for remainder flush). */
+        let streamedTokenAcc = "";
+        /** Per pi-ai: some providers emit `text_end` with full segment text but no `text_delta`. */
+        let textDeltasSinceTextStart = 0;
         const unsub = ent!.agent.subscribe((ev) => {
           if (ev.type === "message_update") {
             const ame = ev.assistantMessageEvent;
-            if (ame.type === "text_delta") {
+            if (ame.type === "text_start") {
+              textDeltasSinceTextStart = 0;
+            } else if (ame.type === "text_delta") {
+              textDeltasSinceTextStart += 1;
               fullReply += ame.delta;
+              streamedTokenAcc += ame.delta;
               if (streamFormat === "sse") {
                 sse.writeEvent("token", { delta: ame.delta });
               } else {
                 ndj.writeLine({ type: "token", delta: ame.delta });
+              }
+            } else if (ame.type === "text_end") {
+              const seg = ame.content;
+              if (
+                typeof seg === "string" &&
+                seg.length > 0 &&
+                textDeltasSinceTextStart === 0
+              ) {
+                fullReply += seg;
+                streamedTokenAcc += seg;
+                if (streamFormat === "sse") {
+                  sse.writeEvent("token", { delta: seg });
+                } else {
+                  ndj.writeLine({ type: "token", delta: seg });
+                }
               }
             } else if (ame.type === "thinking_delta") {
               if (streamFormat === "sse") {
@@ -261,11 +368,33 @@ export function createApp(): Hono {
           unsub();
         }
 
-        const lastAsst = [...ent!.agent.state.messages]
-          .reverse()
-          .find((m) => m.role === "assistant");
-        if (lastAsst) {
-          fullReply = assistantTextFromMessage(lastAsst) || fullReply;
+        const finalText = lastAssistantPlainText(ent!.agent.state.messages);
+        fullReply = finalText || fullReply;
+
+        // Some providers finish with `done` / `message_end` without `text_delta` chunks.
+        // Flush any assistant text that was never streamed as tokens.
+        if (fullReply.length > streamedTokenAcc.length) {
+          const rest = fullReply.slice(streamedTokenAcc.length);
+          if (streamFormat === "sse") {
+            sse.writeEvent("token", { delta: rest });
+          } else {
+            ndj.writeLine({ type: "token", delta: rest });
+          }
+        } else if (fullReply.trim().length === 0) {
+          const explain = explainEmptyAssistantReply(ent!.agent);
+          if (streamFormat === "sse") {
+            sse.writeEvent("token", { delta: explain + "\n" });
+          } else {
+            ndj.writeLine({ type: "token", delta: explain + "\n" });
+          }
+          fullReply = explain;
+        }
+
+        if (process.env.AI_ASSISTANT_DEBUG_STREAM === "1") {
+          const roles = ent!.agent.state.messages.map((m) => m.role).join(",");
+          console.log(
+            `[stream] roles=${roles} fullReplyLen=${fullReply.length} streamedLen=${streamedTokenAcc.length}`,
+          );
         }
 
         const turnCount = ent!.agent.state.messages.filter(
@@ -294,7 +423,11 @@ export function createApp(): Hono {
           ndj.writeLine({ type: "error", error: msg });
         }
       } finally {
-        await writer.close();
+        try {
+          streamCtl?.close();
+        } catch {
+          /* ignore */
+        }
       }
     })();
 

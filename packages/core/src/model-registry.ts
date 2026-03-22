@@ -113,7 +113,7 @@ export function resolveModelById(modelId: string): Model<any> {
 const CURATED_ANTHROPIC = [
   "claude-sonnet-4-6",
   "claude-opus-4-6",
-  "claude-3-5-haiku-20241022",
+  "claude-haiku-4-5",
 ];
 const CURATED_OPENAI = ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini"];
 

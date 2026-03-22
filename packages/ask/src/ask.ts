@@ -2,6 +2,8 @@ import {
   AcceptNDJSON,
   ContentTypeJSON,
   HeaderSessionID,
+  HeaderStreamFormat,
+  StreamFormatNDJSON,
   loadAskConfig,
 } from "@ai-assistant/core";
 
@@ -33,6 +35,7 @@ export async function runAsk(
     method: "POST",
     headers: {
       Accept: AcceptNDJSON,
+      [HeaderStreamFormat]: StreamFormatNDJSON,
       "Content-Type": ContentTypeJSON,
     },
     body,

@@ -1,5 +1,9 @@
 export const HeaderSessionID = "X-Session-Id";
 export const HeaderSessionClose = "X-Session-Close";
+/** When set to `ndjson` or `sse`, overrides `Accept` for chat streaming (avoids proxies stripping Accept). */
+export const HeaderStreamFormat = "X-AI-Assistant-Stream";
+export const StreamFormatNDJSON = "ndjson";
+export const StreamFormatSSE = "sse";
 
 export const ContentTypeJSON = "application/json";
 export const ContentTypePlain = "text/plain";
